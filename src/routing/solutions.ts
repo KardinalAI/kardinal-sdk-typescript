@@ -46,7 +46,8 @@ function isTransient(error: unknown): boolean {
   );
 }
 
-function pollIntervalMs(elapsedMs: number): number {
+/** @internal exported for tests */
+export function pollIntervalMs(elapsedMs: number): number {
   return Math.min(Math.max(elapsedMs * POLL_FRACTION, MIN_POLL_MS), MAX_POLL_MS);
 }
 

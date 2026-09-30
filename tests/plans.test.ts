@@ -113,7 +113,14 @@ describe("plans", () => {
   it("network failure raises KardinalConnectionError, not a raw fetch error", async () => {
     server.use(http.get(`${BASE}/plans/p1`, () => HttpResponse.error()));
     const noRetryClient = new Kardinal({ apiKey: "test-key", maxRetries: 0 });
-    await expect(noRetryClient.routing.plans.get("p1")).rejects.toBeInstanceOf(KardinalConnectionError);
+    await expect(noRetryClient.routing.plans.get("p1")).rejects.toSatisfy((e: unknown) => {
+      expect(e).toBeInstanceOf(KardinalConnectionError);
+      const err = e as KardinalConnectionError;
+      expect(err.code).toBe("CONNECTION_ERROR");
+      expect(err.retryable).toBe(true);
+      expect(err.status).toBe(0);
+      return true;
+    });
   });
 
   it("update() strips read-only fields from the request body", async () => {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "./setup.js";
+import { pollIntervalMs } from "../src/routing/solutions.js";
 import {
   Kardinal,
   KardinalAuthError,
@@ -333,5 +334,18 @@ describe("solutions warnings", () => {
   it("getObjectives() defaults warnings to an empty array", async () => {
     server.use(http.get(`${PLAN_URL}/solution/objectives`, () => HttpResponse.json({ items: [] })));
     expect((await client().routing.solutions.getObjectives(PLAN_ID)).warnings).toEqual([]);
+  });
+});
+
+describe("pollIntervalMs", () => {
+  it.each([
+    [0, 10],
+    [50, 10],
+    [100, 10],
+    [300, 30],
+    [600, 60],
+    [7200, 60],
+  ])("after %is waited, polls every %is (10%% of elapsed, between 10s and 60s)", (elapsed, expected) => {
+    expect(pollIntervalMs(elapsed * 1000)).toBe(expected * 1000);
   });
 });

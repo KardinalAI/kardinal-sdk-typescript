@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   KardinalAuthError,
   KardinalConnectionError,
+  KardinalLimitError,
   KardinalNotFoundError,
   KardinalRateLimitError,
   KardinalServerError,
@@ -11,6 +12,7 @@ import {
 
 const LEAF_CLASSES = [
   KardinalAuthError,
+  KardinalLimitError,
   KardinalNotFoundError,
   KardinalRateLimitError,
   KardinalServerError,
@@ -26,6 +28,7 @@ describe("error hierarchy", () => {
       expect(err.status).toBe(400);
       expect(err.requestId).toBe("req-1");
       expect(err.retryable).toBe(false);
+      expect(err.warnings).toEqual([]);
       expect(err).toBeInstanceOf(Error);
     }
   });
@@ -39,5 +42,19 @@ describe("error hierarchy", () => {
       errors: [{ code: "INVALID_VALUE", message: "bad" }],
     });
     expect(err.errors).toEqual([{ code: "INVALID_VALUE", message: "bad" }]);
+  });
+});
+
+describe("error warnings", () => {
+  it("validation error carries the amendments applied before it was raised", () => {
+    const err = new KardinalValidationError("message", {
+      code: "INVALID_VALUE",
+      status: 400,
+      requestId: null,
+      retryable: false,
+      errors: [{ code: "INVALID_VALUE", message: "bad" }],
+      warnings: [{ code: "INVALID_VALUE", message: "clamped" }],
+    });
+    expect(err.warnings).toEqual([{ code: "INVALID_VALUE", message: "clamped" }]);
   });
 });

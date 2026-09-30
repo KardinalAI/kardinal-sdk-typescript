@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse, passthrough } from "msw";
 import { server } from "./setup.js";
 import {
@@ -7,7 +7,7 @@ import {
   KardinalServerError,
   KardinalValidationError,
 } from "../src/core/errors.js";
-import { Transport } from "../src/core/transport.js";
+import { DEFAULT_BASE_URL, Transport, resolveBaseUrl } from "../src/core/transport.js";
 
 const BASE = "https://app.kardinal.ai/api/v2";
 
@@ -136,5 +136,94 @@ describe("request headers", () => {
     expect(get.get("User-Agent")).toMatch(/^kardinal-sdk-typescript\/\S+ \(Node\/v[\d.]+; \S+\/\S+\)( undici\/\S+)?$/);
     expect(get.get("Content-Type")).toBeNull();
     expect(post.get("Content-Type")).toBe("application/json");
+  });
+});
+
+describe("resolveBaseUrl", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("prefers the explicit option", () => {
+    vi.stubEnv("KARDINAL_BASE_URL", "https://from-env.example/api/v2");
+    expect(resolveBaseUrl("https://from-arg.example/api/v2")).toBe("https://from-arg.example/api/v2");
+  });
+
+  it("falls back to KARDINAL_BASE_URL", () => {
+    vi.stubEnv("KARDINAL_BASE_URL", "https://from-env.example/api/v2");
+    expect(resolveBaseUrl(undefined)).toBe("https://from-env.example/api/v2");
+  });
+
+  it("falls back to production", () => {
+    vi.stubEnv("KARDINAL_BASE_URL", "");
+    expect(resolveBaseUrl(undefined)).toBe(DEFAULT_BASE_URL);
+  });
+});
+
+describe("retries", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** Runs `promise` to completion, advancing the fake clock through backoffs. */
+  async function settle<T>(promise: Promise<T>): Promise<T> {
+    let outcome: { value?: T; error?: unknown } | null = null;
+    promise.then(
+      (value) => (outcome = { value }),
+      (error) => (outcome = { error })
+    );
+    while (outcome === null) await vi.advanceTimersByTimeAsync(500);
+    const { value, error } = outcome as { value?: T; error?: unknown };
+    if (error !== undefined) throw error;
+    return value as T;
+  }
+
+  it("retries a GET after a 5xx, then succeeds", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    server.use(
+      http.get(`${BASE}/plans/p1`, () => {
+        calls += 1;
+        return calls === 1 ? new HttpResponse(null, { status: 503 }) : HttpResponse.json({ item: { id: "p1" } });
+      })
+    );
+    expect(await settle(transport(3).request("GET", "/plans/p1"))).toEqual({ item: { id: "p1" } });
+    expect(calls).toBe(2);
+  });
+
+  it("gives up after maxRetries", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    server.use(
+      http.get(`${BASE}/plans/p1`, () => {
+        calls += 1;
+        return new HttpResponse(null, { status: 503 });
+      })
+    );
+    await expect(settle(transport(2).request("GET", "/plans/p1"))).rejects.toBeInstanceOf(KardinalServerError);
+    expect(calls).toBe(3);
+  });
+
+  it("retries a network error, then raises KardinalConnectionError", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    server.use(
+      http.get(`${BASE}/plans/p1`, () => {
+        calls += 1;
+        return HttpResponse.error();
+      })
+    );
+    await expect(settle(transport(2).request("GET", "/plans/p1"))).rejects.toBeInstanceOf(KardinalConnectionError);
+    expect(calls).toBe(3);
+  });
+});
+
+describe("empty and non-JSON responses", () => {
+  it("returns null for a 204", async () => {
+    server.use(http.delete(`${BASE}/plans/p1`, () => new HttpResponse(null, { status: 204 })));
+    expect(await transport().request("DELETE", "/plans/p1")).toBeNull();
+  });
+
+  it("synthesizes the code of an error response whose body isn't JSON", async () => {
+    server.use(http.get(`${BASE}/plans/p1`, () => new HttpResponse("not json", { status: 500 })));
+    const err = await rejection(transport().request("GET", "/plans/p1"));
+    expect(err).toBeInstanceOf(KardinalServerError);
+    expect(err.code).toBe("INTERNAL_SERVER_ERROR");
   });
 });
