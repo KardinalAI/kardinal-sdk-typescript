@@ -113,6 +113,33 @@ export class KardinalServerError extends KardinalError {}
 export class KardinalTimeoutError extends KardinalError {}
 
 /**
+ * `solutions.wait()` can't return a solution for the plan version it was
+ * waiting on. Client-side only, like `KardinalTimeoutError`. `.code`:
+ *
+ * - `OPTIMIZATION_STALLED`: still optimizing well past its
+ *   `maxOptimizationDuration` — the engine most likely crashed, and nothing
+ *   will ever move the state again.
+ * - `NO_SOLUTION`: the plan ended (typically stopped before the engine
+ *   started) without a solution for this version.
+ * - `PLAN_SUPERSEDED`: a newer version of the plan was pushed meanwhile.
+ */
+export class KardinalOptimizationError extends KardinalError {
+  readonly planId: string;
+  readonly planVersion: number | null;
+  readonly state: string;
+
+  constructor(
+    message: string,
+    opts: { code: string; planId: string; planVersion: number | null; state: string }
+  ) {
+    super(message, { code: opts.code, status: 0, requestId: null, retryable: false });
+    this.planId = opts.planId;
+    this.planVersion = opts.planVersion;
+    this.state = opts.state;
+  }
+}
+
+/**
  * A network-level failure (DNS, connection refused, fetch aborted, ...)
  * that never got an HTTP response at all, after retries were exhausted.
  * `retryable` unless the request was a POST that may have reached the

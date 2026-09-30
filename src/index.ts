@@ -55,3 +55,4 @@ export { parsePlanCreate } from "./routing/schemas.js";
 export type { PlanCreate, PlanCreateInput, Order, Plan, Stop, SingleStop, AlternativesStop } from "./routing/schemas.js";
 export * as examples from "./routing/examples.js";
 export type * from "./routing/types.js";
+export type { WaitedSolution } from "./routing/solutions.js";

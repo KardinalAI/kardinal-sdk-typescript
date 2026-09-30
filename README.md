@@ -64,7 +64,8 @@ try {
   throw e;
 }
 
-const solution = await k.routing.solutions.wait(plan.id); // blocks until it's done
+const solution = await k.routing.solutions.wait(plan.id); // resolves once it's done
+console.log(solution.finalState); // "optimized", or "interrupted"/"stopped" if cut short
 for (const tour of solution.tours ?? []) {
   console.log(tour.resourceId, tour.wayPoints?.length);
 }
@@ -98,6 +99,8 @@ KardinalError
 ├── KardinalRateLimitError      429: temporary overload, retry after a pause
 ├── KardinalServerError         INTERNAL_SERVER_ERROR, or any other 5xx
 ├── KardinalTimeoutError        solutions.wait()'s hard timeout elapsed
+├── KardinalOptimizationError   solutions.wait() has no solution to return: NO_SOLUTION,
+│                               PLAN_SUPERSEDED, OPTIMIZATION_STALLED (engine crashed)
 └── KardinalConnectionError     DNS/connection/fetch failure, no HTTP response at all
 ```
 

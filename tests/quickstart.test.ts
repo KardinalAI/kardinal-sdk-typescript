@@ -2,7 +2,7 @@
  * The quickstart from the README, run end to end against a mocked
  * transport.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "./setup.js";
 import { Kardinal, examples } from "../src/index.js";
@@ -25,11 +25,19 @@ describe("README quickstart", () => {
       )
     );
 
-    const k = new Kardinal({ apiKey: "test-key" });
-    const plan = await k.routing.plans.submit(examples.smallDeliveryPlan());
-    const solution = await k.routing.solutions.wait(plan.id);
+    // wait() first polls after 10s: a fake clock keeps the test instant.
+    vi.useFakeTimers();
+    try {
+      const k = new Kardinal({ apiKey: "test-key" });
+      const plan = await k.routing.plans.submit(examples.smallDeliveryPlan());
+      const waiting = k.routing.solutions.wait(plan.id);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const solution = await waiting;
 
-    expect(plan.id).toBe(PLAN_ID);
-    expect(solution.tours).toEqual([]);
+      expect(plan.id).toBe(PLAN_ID);
+      expect(solution.tours).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

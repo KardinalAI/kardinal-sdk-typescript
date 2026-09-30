@@ -102,10 +102,17 @@ export class PlansAPI {
    * embedded in `Plan.status` — the spec uses both names for different
    * things (see the README's "known gaps" section). */
   async getStatus(planId: string): Promise<PlanState> {
-    const response = await this.transport.request<{ item: { state: PlanState } }>(
+    return (await this._getState(planId)).state;
+  }
+
+  /** @internal `getStatus()` plus the `planVersion` that state belongs to —
+   * `solutions.wait()` needs both, since right after `update()` this
+   * endpoint can still report the previous version's state. */
+  async _getState(planId: string): Promise<{ state: PlanState; planVersion: number | null }> {
+    const response = await this.transport.request<{ item: { state: PlanState; planVersion?: number } }>(
       "GET",
       `/plans/${planId}/state`
     );
-    return response!.item.state;
+    return { state: response!.item.state, planVersion: response!.item.planVersion ?? null };
   }
 }
