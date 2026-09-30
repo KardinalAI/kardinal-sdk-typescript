@@ -1,6 +1,7 @@
 /**
  * Exception hierarchy, organized by family. Every public error carries
- * `code`, `status`, `requestId`, `retryable`. `retryable` is computed here —
+ * `code`, `status`, `requestId`, `retryable`, `warnings`, `errors` and
+ * `details`. `retryable` is computed here —
  * the API doesn't provide it. An unrecognized `code` falls back to the
  * family deduced from the HTTP status rather than disappearing, since
  * `Error.code` in openapi.yaml documents that new codes may be added in a
@@ -9,60 +10,96 @@
  * `requestId` is `null` more often than not: openapi.yaml documents no
  * request-id header or field anywhere, so this is best-effort — populated
  * only when the server happens to send an `X-Request-Id` response header.
+ *
+ * `warnings` is `EnvelopedErrors.warnings`: on a rejected payload,
+ * amendments the server applied before the rejecting error was found.
+ *
+ * `errors` is every `Error` object of the response envelope, on every
+ * family, and `details` the `properties.details` of the error `code` came
+ * from: the only way to tell apart errors sharing a code — every limit
+ * (plan size, daily quota, exhausted credits) is `403 NOT_ALLOWED`, and two
+ * `404 NOT_FOUND` differ only by it ("Plan not found" vs. "Solution version
+ * not found."). Both are empty for client-side errors and for a 429, which
+ * carries no envelope.
  */
+
+/** One `Error` object of the response envelope. */
+export interface ApiErrorEntry {
+  code: string;
+  message: string;
+  properties?: { details?: string; path?: string; [key: string]: unknown };
+}
+
+export interface KardinalErrorOptions {
+  code: string;
+  status: number;
+  requestId: string | null;
+  retryable: boolean;
+  errors?: ApiErrorEntry[];
+  warnings?: ApiErrorEntry[];
+}
 
 export class KardinalError extends Error {
   readonly code: string;
   readonly status: number;
   readonly requestId: string | null;
   readonly retryable: boolean;
+  readonly errors: ApiErrorEntry[];
+  readonly warnings: ApiErrorEntry[];
 
-  constructor(
-    message: string,
-    opts: { code: string; status: number; requestId: string | null; retryable: boolean }
-  ) {
+  constructor(message: string, opts: KardinalErrorOptions) {
     super(message);
     this.name = new.target.name;
     this.code = opts.code;
     this.status = opts.status;
     this.requestId = opts.requestId;
     this.retryable = opts.retryable;
+    this.errors = opts.errors ?? [];
+    this.warnings = opts.warnings ?? [];
+  }
+
+  /** `properties.details` of the error `code` came from (the first one,
+   * unless a 403 put the reason for the 403 further down). */
+  get details(): string | null {
+    if (this.errors.length === 0) return null;
+    const source = this.errors.find((e) => e.code === this.code) ?? this.errors[0];
+    return source.properties?.details ?? null;
   }
 }
 
-/** `NOT_AUTHENTICATED` (401) or `NOT_ALLOWED` (403). */
+/** `NOT_AUTHENTICATED` (401): the API key is missing, malformed, or
+ * expired, or was issued for another environment. */
 export class KardinalAuthError extends KardinalError {}
 
 /**
- * One of the 7 business codes returned under 400.
- * `.errors` carries every error object from the response envelope, not
- * just the first — a single 400 can report several invalid fields at once.
+ * Any 403 (`NOT_ALLOWED`): a limit of the agency was hit — a plan-size
+ * limit (resources, orders, stops), the daily/monthly optimization quota,
+ * or exhausted credits. For a builder account a 403 never means a
+ * permission refusal (see `NOT_ALLOWED` in openapi.yaml).
+ *
+ * `.details` says which limit. For a plan-size limit, `.errors` also has an
+ * `INVALID_VALUE` entry, placed first by the API, whose `properties.path`
+ * and `properties.details` name the field and the allowed value.
+ * Classified on the 403 status rather than on a code, so finer codes the
+ * API may add under 403 land here too.
  */
-export class KardinalValidationError extends KardinalError {
-  readonly errors: Array<{ code: string; message: string }>;
+export class KardinalLimitError extends KardinalError {}
 
-  constructor(
-    message: string,
-    opts: {
-      code: string;
-      status: number;
-      requestId: string | null;
-      retryable: boolean;
-      errors: Array<{ code: string; message: string }>;
-    }
-  ) {
-    super(message, opts);
-    this.errors = opts.errors;
-  }
-}
+/**
+ * One of the 7 business codes returned under 400. A single 400 can report
+ * several invalid fields at once: `.errors` has them all, not just the
+ * first.
+ */
+export class KardinalValidationError extends KardinalError {}
 
 /** `NOT_FOUND` (404). Raised on every 404, including reads — no "get or null". */
 export class KardinalNotFoundError extends KardinalError {}
 
 /**
- * 429. Not documented in openapi.yaml as of this writing (no response
- * shape to parse a business `code`/`message` from), hence "outside the
- * envelope": `.code` is set to the synthetic value `"RATE_LIMITED"`.
+ * 429: a temporary overload, not a quota — retry after a pause, with an
+ * increasing delay. The response has an empty body (no envelope to parse a
+ * business `code`/`message` from): `.code` is set to the synthetic value
+ * `"RATE_LIMITED"`.
  */
 export class KardinalRateLimitError extends KardinalError {}
 
@@ -94,10 +131,12 @@ const VALIDATION_CODES = new Set([
   "PRECONDITION_FAILED",
   "NOT_IMPLEMENTED",
 ]);
-const AUTH_CODES = new Set(["NOT_AUTHENTICATED", "NOT_ALLOWED"]);
+const AUTH_CODES = new Set(["NOT_AUTHENTICATED"]);
 
-function familyForStatus(status: number): new (message: string, opts: any) => KardinalError {
-  if (status === 401 || status === 403) return KardinalAuthError;
+type ErrorClass = new (message: string, opts: KardinalErrorOptions) => KardinalError;
+
+function familyForStatus(status: number): ErrorClass {
+  if (status === 401) return KardinalAuthError;
   if (status === 404) return KardinalNotFoundError;
   if (status === 429) return KardinalRateLimitError;
   if (status >= 500) return KardinalServerError;
@@ -118,27 +157,32 @@ function synthesizeCode(status: number): string {
 /**
  * Build the right exception for a failed HTTP response. `errors` is the
  * parsed `EnvelopedErrors.errors` list (empty for a 429, which carries no
- * envelope at all).
+ * envelope at all), `warnings` is `EnvelopedErrors.warnings`.
  */
 export function fromResponse(opts: {
   status: number;
   requestId: string | null;
-  errors: Array<{ code: string; message: string }>;
+  errors: ApiErrorEntry[];
+  warnings?: ApiErrorEntry[];
 }): KardinalError {
-  const { status, requestId, errors } = opts;
-  const code = errors[0]?.code ?? synthesizeCode(status);
-  const message = errors[0]?.message ?? `HTTP ${status}`;
+  const { status, requestId, errors, warnings } = opts;
+  // A plan-size limit comes back as a 403 whose first error is the
+  // INVALID_VALUE naming the field, followed by the error that explains the
+  // 403 itself: for a 403, `code` comes from the first error that isn't a
+  // validation code.
+  let primary: ApiErrorEntry | undefined = errors[0];
+  if (status === 403) primary = errors.find((e) => !VALIDATION_CODES.has(e.code)) ?? primary;
+  const code = primary?.code ?? synthesizeCode(status);
+  const message = primary?.message ?? `HTTP ${status}`;
   const retryable = status === 429 || status >= 500;
 
-  let Family: new (message: string, opts: any) => KardinalError;
-  if (AUTH_CODES.has(code)) Family = KardinalAuthError;
+  let Family: ErrorClass;
+  if (status === 403) Family = KardinalLimitError;
+  else if (AUTH_CODES.has(code)) Family = KardinalAuthError;
   else if (VALIDATION_CODES.has(code)) Family = KardinalValidationError;
   else if (code === "NOT_FOUND") Family = KardinalNotFoundError;
   else if (code === "INTERNAL_SERVER_ERROR") Family = KardinalServerError;
   else Family = familyForStatus(status);
 
-  if (Family === KardinalValidationError) {
-    return new KardinalValidationError(message, { code, status, requestId, retryable, errors });
-  }
-  return new Family(message, { code, status, requestId, retryable });
+  return new Family(message, { code, status, requestId, retryable, errors, warnings });
 }

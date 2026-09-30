@@ -90,7 +90,9 @@ resource (for example a pickup and its delivery).
 
 ```
 KardinalError
-├── KardinalAuthError           NOT_AUTHENTICATED, NOT_ALLOWED
+├── KardinalAuthError           NOT_AUTHENTICATED (401): missing, invalid or expired key
+├── KardinalLimitError          any 403 (NOT_ALLOWED): plan-size limit, optimization quota,
+│                               or insufficient credits
 ├── KardinalValidationError     the 7 codes under 400, with the full error list
 ├── KardinalNotFoundError       NOT_FOUND — raised on every 404, including reads
 ├── KardinalRateLimitError      429: temporary overload, retry after a pause
@@ -99,7 +101,17 @@ KardinalError
 └── KardinalConnectionError     DNS/connection/fetch failure, no HTTP response at all
 ```
 
-Every error carries `.code`, `.status`, `.requestId`, `.retryable`.
+Every error carries `.code`, `.status`, `.requestId`, `.retryable`,
+`.warnings`, `.errors` and `.details`. `.errors` is every error object of
+the response; `.details` is the `properties.details` of the error `.code`
+came from, the only way to tell apart errors that share a code.
+
+`KardinalLimitError` is what every 403 becomes: for a builder account, a
+403 always means a limit was hit, never a permission refusal. `.details`
+says which one. For a plan-size limit, `.errors` also holds an
+`INVALID_VALUE` entry whose `properties.path` and `properties.details`
+name the field and the allowed value.
+
 `retryable` is computed by the SDK; an unrecognized `code` falls back to
 the family matching the HTTP status rather than disappearing, since the
 spec documents that new codes may be added in a non-breaking release.

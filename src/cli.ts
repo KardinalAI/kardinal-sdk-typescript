@@ -38,7 +38,7 @@ function emit(payload: unknown, forceJson: boolean): void {
 }
 
 function fail(err: KardinalError): never {
-  emit({ code: err.code, message: err.message, retryable: err.retryable }, true);
+  emit({ code: err.code, message: err.message, details: err.details, retryable: err.retryable }, true);
   process.exit(1);
 }
 

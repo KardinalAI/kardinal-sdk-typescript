@@ -6,6 +6,7 @@
 
 import { isRetryable, sleep } from "./retry.js";
 import { KardinalConnectionError, KardinalError, fromResponse } from "./errors.js";
+import type { ApiErrorEntry } from "./errors.js";
 
 export const DEFAULT_BASE_URL = "https://app.kardinal.ai/api/v2";
 export const BASE_URL_ENV_VAR = "KARDINAL_BASE_URL";
@@ -115,13 +116,19 @@ export class Transport {
 
   private async errorFor(response: Response): Promise<KardinalError> {
     const requestId = response.headers.get("X-Request-Id");
-    let errors: Array<{ code: string; message: string }> = [];
+    let errors: ApiErrorEntry[] = [];
+    let warnings: ApiErrorEntry[] = [];
     try {
       const text = await response.text();
-      if (text) errors = JSON.parse(text).errors ?? [];
+      if (text) {
+        const body = JSON.parse(text);
+        errors = body.errors ?? [];
+        warnings = body.warnings ?? [];
+      }
     } catch {
       errors = [];
+      warnings = [];
     }
-    return fromResponse({ status: response.status, requestId, errors });
+    return fromResponse({ status: response.status, requestId, errors, warnings });
   }
 }
