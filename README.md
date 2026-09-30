@@ -176,7 +176,7 @@ inconsistent naming). A few are specific to this stack:
   `datamodel-codegen`'s behavior on the Python side, where a default makes
   a field `Optional`. Something to know if porting example code between
   the two SDKs.
-- **Not deeply validated in v0**: `resources` only checks the fields
+- **Not deeply validated yet**: `resources` only checks the fields
   openapi.yaml actually marks required (`id`, `vehicleProfile`,
   `workingTimeWindow`); the rarer plan-level fields
   (`additionalConstraints`, `globalConstraints`, `objectives`, and the
@@ -189,7 +189,7 @@ inconsistent naming). A few are specific to this stack:
   `string`) — TypeScript's structural type system doesn't need the same
   per-hop resolution pydantic's class generation does.
 - **`User-Agent` is sent, but browsers may silently drop or ignore it**
-  (a "forbidden header name" in some fetch implementations) — this v0
+  (a "forbidden header name" in some fetch implementations) — this SDK
   targets Node.js; browser behavior isn't verified.
 
 Verified live against a sandbox environment: `auth check`, and a full

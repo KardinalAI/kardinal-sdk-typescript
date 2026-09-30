@@ -11,11 +11,7 @@ import type { ApiErrorEntry } from "./errors.js";
 export const DEFAULT_BASE_URL = "https://app.kardinal.ai/api/v2";
 export const BASE_URL_ENV_VAR = "KARDINAL_BASE_URL";
 
-/**
- * SDK package version, read from package.json at build time via a
- * generated constant rather than hardcoded here — see scripts/version.ts.
- * Kept as a plain string import so this file has no filesystem dependency.
- */
+/** SDK package version, read from package.json at runtime (see ./version). */
 import { SDK_VERSION } from "./version.js";
 
 /**
