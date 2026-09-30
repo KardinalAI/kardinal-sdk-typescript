@@ -27,14 +27,14 @@ jobs:
           node-version: "24"
       - name: Install
         run: npm ci
-      - name: Check the tag matches the package version
-        run: node scripts/check-tag-matches-version.mjs "$GITHUB_REF_NAME"
       - name: Typecheck
         run: npm run typecheck
       - name: Build
         run: npm run build
       - name: Test
         run: npm test
+      - name: Check the tag matches the package version
+        run: node scripts/check-tag-matches-version.mjs "$GITHUB_REF_NAME"
       - name: Pack
         run: npm pack
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -30,7 +30,11 @@ npm test
 ```
 
 CI runs the typecheck, the build and the tests on every supported Node.js
-version (22, 24 and 26, see `.gitlab-ci.yml`).
+version (22, 24 and 26, see `.gitlab-ci.yml`). The tests include
+`tests/types-no-diff.test.ts`, which regenerates the types
+(`scripts/check-types-no-diff.sh`) and fails if the committed file
+changes: `openapi-typescript` is pinned exactly in `package.json` for that
+reason.
 
 ### Releasing
 
@@ -46,9 +50,9 @@ goes live.
    repository, on the merged commit. The push mirror copies it to GitHub
    within minutes. Don't create tags on GitHub: the mirror would overwrite
    them.
-3. On GitHub, the workflow checks that the tag matches the package
-   version, typechecks, builds, tests and packs the tarball, then stages
-   it on npm (Actions tab).
+3. On GitHub, the workflow typechecks, builds, tests, checks that the tag
+   matches the package version and packs the tarball, then stages it on
+   npm (Actions tab).
 4. Approve the staged version on npmjs.com (package page, Staged Packages
    tab) or with `npm stage approve <stage-id>` (`npm stage list
    @kardinal-ai/sdk` gives the id). Both ask for two-factor
@@ -70,11 +74,28 @@ npm has no separate test registry.
 
 ### The spec
 
-`spec/openapi.yaml` is a copy of the `openapi.yaml` of the Kardinal API
-docs (the published version is at https://developers.kardinal.ai/openapi.yaml).
-It isn't fetched at build time. Before a release, check it hasn't drifted
-from the published version; after resyncing it, run
-`npm run generate:types`.
+`spec/openapi.yaml` is a copy of the `openapi.yaml` of the Kardinal API docs,
+whose source repository is internal (the published version is at
+https://developers.kardinal.ai/openapi.yaml). It isn't fetched at build
+time. Maintainers with access to the docs repository check it hasn't
+drifted before a release:
+
+```bash
+npm run check:spec
+```
+
+By default this compares against mintlify's published spec
+(`origin/main`, read with `git show` from `../mintlify`, or
+`MINTLIFY_REPO_PATH`), without checking anything out there; run
+`git -C <mintlify repo> fetch` first to compare against the latest main.
+`MINTLIFY_REF` picks another ref, and an explicit file path
+(`npm run check:spec -- path/to/openapi.yaml`) is compared as-is. To
+resync:
+
+```bash
+git -C <mintlify repo> show origin/main:openapi.yaml > spec/openapi.yaml
+npm run generate:types
+```
 
 Never hand-edit `src/routing/generated-types.ts`: it's overwritten on
 every regeneration. Notes on the generated types that the hand-written

@@ -10,7 +10,7 @@ test:
     matrix:
       - NODE_VERSION: ["22", "24", "26"]
   before_script:
-    - npm install
+    - npm ci
   script:
     - npm run typecheck
     - npm run build

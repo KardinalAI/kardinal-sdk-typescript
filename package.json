@@ -1,8 +1,13 @@
 {
   "name": "@kardinal-ai/sdk",
-  "version": "0.1.1-dev.1",
+  "version": "1.0.0",
   "description": "Kardinal TypeScript SDK: route optimization plans and solutions.",
   "license": "MIT",
+  "author": "Kardinal",
+  "homepage": "https://developers.kardinal.ai",
+  "bugs": {
+    "url": "https://github.com/KardinalAI/kardinal-sdk-typescript/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/KardinalAI/kardinal-sdk-typescript.git"
@@ -26,7 +31,8 @@
     "build": "tsc -p tsconfig.json",
     "generate:types": "bash scripts/generate-types.sh",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:spec": "node scripts/check-spec-matches-mintlify.mjs"
   },
   "dependencies": {
     "zod": "^3.23.8"
@@ -41,10 +47,11 @@
   },
   "devDependencies": {
     "commander": "^12.1.0",
-    "openapi-typescript": "^7.4.1",
+    "openapi-typescript": "7.13.0",
     "typescript": "^5.6.3",
     "vitest": "^5.0.2",
     "@types/node": "^22.9.0",
-    "msw": "^2.6.4"
+    "msw": "^2.6.4",
+    "js-yaml": "4.3.2"
   }
 }
