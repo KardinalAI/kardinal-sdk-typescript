@@ -8,10 +8,11 @@ import type { Page } from "../core/pagination.js";
 import type { PlanCreate, Plan } from "./schemas.js";
 import type { PlanLight, PlanState } from "./types.js";
 
-// Server-computed fields update() must not echo back on PUT — POST already
-// actively rejects an unexpected `id`, so nothing guarantees a future PUT
-// stays lenient about these just because it is today.
+// Fields openapi.yaml marks `readOnly`, which update() must not echo back
+// on PUT. `id` only travels in the URL: the server rejects a body `id` that
+// doesn't match it, and POST already rejects any body `id`.
 const PLAN_READ_ONLY_FIELDS = [
+  "id",
   "agencyId",
   "version",
   "running",
@@ -60,8 +61,8 @@ export class PlansAPI {
     await this.transport.request("DELETE", `/plans/${planId}`);
   }
 
-  /** `GET /plans`. Always sends `page`/`itemsPerPage` explicitly: the API
-   * only skips pagination when both are absent from the request. */
+  /** `GET /plans`. Always paginated; `page`/`itemsPerPage` are sent
+   * explicitly so the page asked for is visible in the call itself. */
   async list(
     opts: { page?: number; itemsPerPage?: number; archived?: string } = {}
   ): Promise<Page<PlanLight>> {

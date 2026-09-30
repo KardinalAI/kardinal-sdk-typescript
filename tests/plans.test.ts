@@ -102,6 +102,7 @@ describe("plans", () => {
       createdAt: "2026-01-01T00:00:00Z",
     } as any;
     await client().routing.plans.update(plan);
-    expect(Object.keys(sentBody).sort()).toEqual(["id", "resources"]);
+    // `id` is readOnly in the spec: it only travels in the URL.
+    expect(Object.keys(sentBody).sort()).toEqual(["resources"]);
   });
 });
