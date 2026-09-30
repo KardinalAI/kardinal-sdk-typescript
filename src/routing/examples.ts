@@ -12,6 +12,7 @@ import type { Resource } from "./types.js";
 // doesn't matter for a demo working window with hours of margin either
 // way, and this keeps the example dependency-free.
 const DEMO_UTC_OFFSET = "+01:00";
+const DEMO_UTC_OFFSET_MS = 60 * 60 * 1000;
 
 // Depot and eight delivery addresses around central Paris.
 const DEPOT = { lat: 48.8566, lon: 2.3522 };
@@ -37,7 +38,8 @@ function pad(n: number): string {
  * optimize.
  */
 function tomorrowsWorkingWindow(): { begin: string; end: string } {
-  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  // Shifted by the offset, so the UTC getters below read the +01:00 date.
+  const tomorrow = new Date(Date.now() + DEMO_UTC_OFFSET_MS + 24 * 60 * 60 * 1000);
   const y = tomorrow.getUTCFullYear();
   const m = pad(tomorrow.getUTCMonth() + 1);
   const d = pad(tomorrow.getUTCDate());

@@ -60,3 +60,47 @@ describe("orderSchema (stops discriminator fix)", () => {
     ).toThrow(z.ZodError);
   });
 });
+
+describe("parsePlanCreate (rules shared with the Python SDK)", () => {
+  const resource = {
+    id: "r1",
+    vehicleProfile: { type: "car" },
+    workingTimeWindow: { begin: "2026-10-01T08:00:00Z", end: "2026-10-01T18:00:00Z" },
+  };
+  const order = (fields: Record<string, unknown>) => ({
+    id: "o1",
+    stops: [{ type: "single", id: "s1", position: { lat: 48.85, lon: 2.35 } }],
+    ...fields,
+  });
+
+  it("accepts empty resources and stops, like openapi.yaml (no minItems)", () => {
+    expect(() => parsePlanCreate({ resources: [], orders: [order({ stops: [] })] })).not.toThrow();
+  });
+
+  it("rejects an id outside the allowed characters", () => {
+    expect(() => parsePlanCreate({ resources: [{ ...resource, id: "r 1" }] })).toThrow(z.ZodError);
+    expect(() => parsePlanCreate({ resources: [], orders: [order({ id: "é" })] })).toThrow(z.ZodError);
+  });
+
+  it("rejects a malformed ISO 8601 duration", () => {
+    expect(() => parsePlanCreate({ resources: [], maxOptimizationDuration: "10s" })).toThrow(z.ZodError);
+    expect(() => parsePlanCreate({ resources: [], orders: [order({ maxStopSpan: "1h" })] })).toThrow(z.ZodError);
+  });
+
+  it("rejects a non-integer priority", () => {
+    expect(() => parsePlanCreate({ resources: [], orders: [order({ priority: 1.5 })] })).toThrow(z.ZodError);
+    expect(() => parsePlanCreate({ resources: [{ ...resource, priority: 0.5 }] })).toThrow(z.ZodError);
+  });
+
+  it("rejects an unknown vehicle profile type", () => {
+    expect(() => parsePlanCreate({ resources: [{ ...resource, vehicleProfile: { type: "boat" } }] })).toThrow(
+      z.ZodError
+    );
+  });
+
+  it("drops unknown resource fields and applies the resource priority default", () => {
+    const plan = parsePlanCreate({ resources: [{ ...resource, bogus: 1 }] });
+    expect(plan.resources[0]).not.toHaveProperty("bogus");
+    expect(plan.resources[0].priority).toBe(0);
+  });
+});

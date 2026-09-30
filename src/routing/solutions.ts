@@ -2,7 +2,7 @@
 
 import type { Transport } from "../core/transport.js";
 import type { PlansAPI } from "./plans.js";
-import type { Solution, SolutionObjective, PlanState } from "./types.js";
+import type { Solution, SolutionObjective, SolutionObjectives, PlanState, Warning } from "./types.js";
 import { parseDurationMs } from "../core/duration.js";
 import {
   KardinalConnectionError,
@@ -74,19 +74,23 @@ export class SolutionsAPI {
    * after `update()` this can still be the previous version's solution
    * (compare `planVersion`). `wait()` handles all of that. */
   async get(planId: string): Promise<Solution> {
-    const response = await this.transport.request<{ item: Solution }>("GET", `/plans/${planId}/solution`);
-    return response!.item;
+    const response = await this.transport.request<{ item: Omit<Solution, "warnings">; warnings?: Warning[] }>(
+      "GET",
+      `/plans/${planId}/solution`
+    );
+    return { ...response!.item, warnings: response!.warnings ?? [] };
   }
 
   /** `GET /plans/{id}/solution/objectives`. Only the value of each
-   * objective, without the tours. To track progress without waiting, poll
-   * no more than once every 10 seconds per plan. */
-  async getObjectives(planId: string): Promise<SolutionObjective[]> {
-    const response = await this.transport.request<{ items?: SolutionObjective[] }>(
+   * objective, without the tours, as a plain array with a `warnings`
+   * property attached. To track progress without waiting, poll no more than
+   * once every 10 seconds per plan. */
+  async getObjectives(planId: string): Promise<SolutionObjectives> {
+    const response = await this.transport.request<{ items?: SolutionObjective[]; warnings?: Warning[] }>(
       "GET",
       `/plans/${planId}/solution/objectives`
     );
-    return response!.items ?? [];
+    return Object.assign(response!.items ?? [], { warnings: response!.warnings ?? [] });
   }
 
   /**
@@ -113,15 +117,15 @@ export class SolutionsAPI {
    * legitimately last isn't bounded.
    */
   async wait(planId: string, timeoutMs?: number): Promise<WaitedSolution> {
-    const start = Date.now();
+    const start = performance.now();
     const deadline = timeoutMs === undefined ? null : start + timeoutMs;
     const plan = await this.plans.get(planId);
     const version = plan.version ?? null;
-    const budgetMs = plan.maxOptimizationDuration ? parseDurationMs(plan.maxOptimizationDuration) : null;
+    const budgetMs = plan.maxOptimizationDuration != null ? parseDurationMs(plan.maxOptimizationDuration) : null;
 
     const tracker: Tracker = { state: null, since: start, stoppedSince: null };
     for (;;) {
-      const now = Date.now();
+      const now = performance.now();
       let pause = pollIntervalMs(now - start);
       if (deadline !== null) pause = Math.min(pause, Math.max(deadline - now, 0));
       await sleep(pause);
@@ -134,7 +138,7 @@ export class SolutionsAPI {
         result = null;
       }
       if (result !== null) return result;
-      if (deadline !== null && Date.now() >= deadline) {
+      if (deadline !== null && performance.now() >= deadline) {
         throw new KardinalTimeoutError(
           `Timed out waiting for plan "${planId}" to finish optimizing (last state seen: ${tracker.state ?? "none"}).`,
           { code: "CLIENT_TIMEOUT", status: 0, requestId: null, retryable: false }
@@ -162,7 +166,7 @@ export class SolutionsAPI {
       }
       if (stateVersion < version) return null; // right after update(): /state hasn't caught up yet
     }
-    const now = Date.now();
+    const now = performance.now();
     if (state !== tracker.state) {
       tracker.state = state;
       tracker.since = now;

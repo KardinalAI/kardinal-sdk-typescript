@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { http, HttpResponse, passthrough } from "msw";
 import { server } from "./setup.js";
-import { KardinalConnectionError, KardinalError, KardinalServerError } from "../src/core/errors.js";
+import {
+  KardinalConnectionError,
+  KardinalError,
+  KardinalServerError,
+  KardinalValidationError,
+} from "../src/core/errors.js";
 import { Transport } from "../src/core/transport.js";
 
 const BASE = "https://app.kardinal.ai/api/v2";
@@ -87,5 +92,49 @@ describe("response bodies", () => {
     const err = await rejection(transport().request("GET", "/plans/p1"));
     expect(err.code).toBe("INVALID_RESPONSE_BODY");
     expect(err.status).toBe(200);
+  });
+});
+
+describe("error bodies", () => {
+  for (const body of ["null", "[1, 2]", '"oops"']) {
+    it(`falls back to empty errors when the JSON body is ${body}`, async () => {
+      server.use(http.get(`${BASE}/plans/p1`, () => new HttpResponse(body, { status: 500 })));
+      const err = await rejection(transport().request("GET", "/plans/p1"));
+      expect(err).toBeInstanceOf(KardinalServerError);
+      expect(err.code).toBe("INTERNAL_SERVER_ERROR");
+      expect(err.errors).toEqual([]);
+    });
+  }
+
+  it("reports a 3xx as an error instead of following it", async () => {
+    server.use(
+      http.get(`${BASE}/plans/p1`, () => new HttpResponse(null, { status: 302, headers: { Location: "/elsewhere" } }))
+    );
+    const err = await rejection(transport().request("GET", "/plans/p1"));
+    expect(err).toBeInstanceOf(KardinalValidationError);
+    expect(err.status).toBe(302);
+  });
+});
+
+describe("request headers", () => {
+  it("identify the SDK, and send Content-Type only with a body", async () => {
+    const seen: Headers[] = [];
+    server.use(
+      http.get(`${BASE}/plans/p1`, ({ request }) => {
+        seen.push(request.headers);
+        return HttpResponse.json({});
+      }),
+      http.post(`${BASE}/plans`, ({ request }) => {
+        seen.push(request.headers);
+        return HttpResponse.json({});
+      })
+    );
+    await transport().request("GET", "/plans/p1");
+    await transport().request("POST", "/plans", { json: {} });
+    const [get, post] = seen;
+    expect(get.get("X-Kardinal-Client")).toMatch(/^kardinal-sdk-typescript\/\S+$/);
+    expect(get.get("User-Agent")).toMatch(/^kardinal-sdk-typescript\/\S+ \(Node\/v[\d.]+; \S+\/\S+\)( undici\/\S+)?$/);
+    expect(get.get("Content-Type")).toBeNull();
+    expect(post.get("Content-Type")).toBe("application/json");
   });
 });

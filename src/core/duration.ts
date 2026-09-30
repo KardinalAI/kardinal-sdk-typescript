@@ -18,7 +18,7 @@ const DAYS_PER_MONTH = 30;
  */
 export function parseDurationMs(value: string): number {
   const match = PATTERN.exec(value);
-  if (!match || value === "P") {
+  if (!match || value === "P" || value === "PT") {
     throw new Error(`Not a valid ISO 8601 duration: ${JSON.stringify(value)}`);
   }
   const g = match.groups ?? {};

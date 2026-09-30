@@ -1,4 +1,6 @@
-/** Generic pagination wrapper. `nextPage` is `null` on the last page. */
+/** One page of a paginated collection. `nextPage` is `null` on the last
+ * page, `previousPage` on the first; asking for a page past the last one
+ * returns the last page. */
 
 export interface Page<T> {
   items: T[];
@@ -6,6 +8,8 @@ export interface Page<T> {
   totalPages: number;
   total: number;
   nextPage: number | null;
+  previousPage: number | null;
+  itemsPerPage: number | null;
 }
 
 /** Chain pages transparently, yielding items one at a time. */

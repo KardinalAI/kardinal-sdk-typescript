@@ -51,6 +51,9 @@ export class Kardinal {
 }
 
 export * from "./core/errors.js";
+export { MissingApiKeyError, EmptyApiKeyError } from "./core/auth.js";
+export type { Page } from "./core/pagination.js";
+export type { ArchivedFilter } from "./routing/plans.js";
 export { parsePlanCreate } from "./routing/schemas.js";
 export type { PlanCreate, PlanCreateInput, Order, Plan, Stop, SingleStop, AlternativesStop } from "./routing/schemas.js";
 export * as examples from "./routing/examples.js";

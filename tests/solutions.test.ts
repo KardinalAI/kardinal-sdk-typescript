@@ -304,3 +304,34 @@ describe("solutions.getObjectives", () => {
     expect(objectives[0].name).toBe("minimizeCosts");
   });
 });
+
+describe("solutions warnings", () => {
+  it("get() copies the envelope's warnings onto the solution", async () => {
+    server.use(
+      http.get(`${PLAN_URL}/solution`, () =>
+        HttpResponse.json({
+          item: { planId: PLAN_ID, planVersion: 1 },
+          warnings: [{ code: "INVALID_VALUE", message: "crow-fly distances" }],
+        })
+      )
+    );
+    const solution = await client().routing.solutions.get(PLAN_ID);
+    expect(solution.warnings.map((w) => w.code)).toEqual(["INVALID_VALUE"]);
+  });
+
+  it("getObjectives() attaches the envelope's warnings to the array", async () => {
+    server.use(
+      http.get(`${PLAN_URL}/solution/objectives`, () =>
+        HttpResponse.json({ items: [], warnings: [{ code: "INVALID_VALUE", message: "m" }] })
+      )
+    );
+    const objectives = await client().routing.solutions.getObjectives(PLAN_ID);
+    expect(objectives).toHaveLength(0);
+    expect(objectives.warnings.map((w) => w.code)).toEqual(["INVALID_VALUE"]);
+  });
+
+  it("getObjectives() defaults warnings to an empty array", async () => {
+    server.use(http.get(`${PLAN_URL}/solution/objectives`, () => HttpResponse.json({ items: [] })));
+    expect((await client().routing.solutions.getObjectives(PLAN_ID)).warnings).toEqual([]);
+  });
+});

@@ -4,6 +4,7 @@
  * the ./errors hierarchy.
  */
 
+import { arch, type } from "node:os";
 import { isRetryable, sleep } from "./retry.js";
 import { KardinalConnectionError, KardinalError, fromResponse } from "./errors.js";
 import type { ApiErrorEntry } from "./errors.js";
@@ -27,14 +28,22 @@ export function resolveBaseUrl(baseUrl: string | undefined): string {
 }
 
 // Error codes Node's fetch reports (on `error.cause.code`) when the
-// connection never opened: nothing was sent, so even a POST is safe to
-// retry. Anything else (reset socket, our own timeout abort) may have
-// happened after the request reached the server.
+// connection never opened (DNS, refused, unreachable, TLS handshake):
+// nothing was sent, so even a POST is safe to retry. Anything else (reset
+// socket, our own timeout abort) may have happened after the request
+// reached the server.
 const NEVER_SENT_CODES = new Set([
   "ECONNREFUSED",
   "ENOTFOUND",
   "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
   "UND_ERR_CONNECT_TIMEOUT",
+  "CERT_HAS_EXPIRED",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
 ]);
 
 function neverSent(error: unknown): boolean {
@@ -44,6 +53,14 @@ function neverSent(error: unknown): boolean {
 
 function clientHeader(): string {
   return `kardinal-sdk-typescript/${SDK_VERSION}`;
+}
+
+/** `User-Agent`: SDK version, Node version, OS and architecture, and the
+ * version of undici (Node's built-in `fetch`). Nothing personal. */
+function userAgent(): string {
+  const details = [`Node/${process.version}`, `${type()}/${arch()}`];
+  const undici = process.versions.undici ? ` undici/${process.versions.undici}` : "";
+  return `${clientHeader()} (${details.join("; ")})${undici}`;
 }
 
 export interface TransportOptions {
@@ -82,19 +99,25 @@ export class Transport {
     for (;;) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${this.apiKey}`,
+        "X-Kardinal-Client": clientHeader(),
+        "User-Agent": userAgent(),
+      };
+      if (opts.json !== undefined) headers["Content-Type"] = "application/json";
       let response: Response;
+      let text: string;
       try {
         response = await fetch(url, {
           method,
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-            "X-Kardinal-Client": clientHeader(),
-            "User-Agent": `${clientHeader()} (Node/${process.version})`,
-          },
+          headers,
           body: opts.json !== undefined ? JSON.stringify(opts.json) : undefined,
           signal: controller.signal,
+          // Like the Python SDK: a 3xx is reported as an error, not followed.
+          redirect: "manual",
         });
+        // Read inside the try, so the timeout also covers the body.
+        text = await response.text();
       } catch (cause) {
         clearTimeout(timer);
         if (attempt < this.maxRetries && isRetryable(method, { status: null, networkError: true })) {
@@ -113,7 +136,6 @@ export class Transport {
 
       if (response.status < 300) {
         if (response.status === 204) return null;
-        const text = await response.text();
         if (!text) return null;
         try {
           return JSON.parse(text) as T;
@@ -135,18 +157,17 @@ export class Transport {
         await sleep(attempt);
         continue;
       }
-      throw await this.errorFor(response, method);
+      throw this.errorFor(response, text, method);
     }
   }
 
-  private async errorFor(response: Response, method: string): Promise<KardinalError> {
+  private errorFor(response: Response, text: string, method: string): KardinalError {
     const requestId = response.headers.get("X-Request-Id");
     let errors: ApiErrorEntry[] = [];
     let warnings: ApiErrorEntry[] = [];
     try {
-      const text = await response.text();
-      if (text) {
-        const body = JSON.parse(text);
+      const body = text ? JSON.parse(text) : null;
+      if (body !== null && typeof body === "object" && !Array.isArray(body)) {
         errors = body.errors ?? [];
         warnings = body.warnings ?? [];
       }

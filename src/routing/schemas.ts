@@ -8,20 +8,24 @@
  * validate` (reject a malformed plan before spending credits, with the
  * full list of problems, not just the first).
  *
- * v0 scope note: `orders`/`stops` and the top-level scalar fields are
- * fully validated below; `resources` checks the three fields openapi.yaml
- * actually marks required (id, vehicleProfile, workingTimeWindow) but not
- * every nested constraint. The rarer plan-level fields
- * (`additionalConstraints`, `globalConstraints`, `objectives`, and the
- * other `*ByResourceTag`/`*ByStopTag` maps) are typed for compile-time
- * safety via the generated schema types, but not yet deeply validated at
- * runtime the way the Python SDK's fully pydantic-backed models are — a
- * malformed value there fails server-side (400), not locally. Deepening
- * this is on the list for a later version, not v0.
+ * Scope: `orders`/`stops`, `resources` and the top-level scalar fields are
+ * validated below with the same rules as the Python SDK (id pattern, ISO
+ * 8601 duration pattern, integers, required fields). The nested objects of
+ * the rarer fields (`cost`, `breaks`, vehicle profile options on a
+ * resource; `additionalConstraints`, `globalConstraints`, `objectives` and
+ * the other `*ByResourceTag`/`*ByStopTag` maps on a plan) are typed for
+ * compile-time safety via the generated schema types, but not deeply
+ * validated at runtime — a malformed value there fails server-side (400),
+ * not locally.
  */
 
 import { z } from "zod";
 import type { components } from "./generated-types.js";
+
+// --- Scalars (openapi.yaml `RegexIdValidation`, `Duration`) ----------------
+
+const idSchema = z.string().regex(/^[a-zA-Z0-9-._~:@!$,]+$/);
+const durationSchema = z.string().regex(/^P(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(\d+H)?(\d+M)?(\d+S)?)?$/);
 
 // --- Position / TimeWindow / TaggedTimeWindow -----------------------------
 
@@ -38,7 +42,7 @@ const timeWindowSchema = z.object({
 const taggedTimeWindowSchema = z.object({
   begin: z.string(),
   end: z.string(),
-  resourceTags: z.array(z.string()).optional(),
+  resourceTags: z.array(idSchema).optional(),
 });
 
 const capacitiesSchema = z.record(z.string(), z.number());
@@ -49,23 +53,23 @@ const capacitiesSchema = z.record(z.string(), z.number());
 // discriminator when it resolves that pattern, which would silently make
 // `type` (required by the real API) look optional-or-absent. This mirrors
 // it correctly instead, the same fix the Python sibling SDK applies to the
-// analogous Stop1/Stop11/Stop12 codegen artifact there.
+// analogous Stop1/Stop12/Stop13 codegen artifact there.
 
 const singleStopSchema = z.object({
   type: z.literal("single"),
-  id: z.string(),
+  id: idSchema,
   properties: z.record(z.string(), z.string()).optional(),
-  tags: z.array(z.string()).optional(),
+  tags: z.array(idSchema).optional(),
   position: positionSchema,
   kind: z.enum(["pickup", "delivery", "acknowledgement"]).optional(),
-  operationDuration: z.string().optional(),
+  operationDuration: durationSchema.optional(),
   capacities: capacitiesSchema.optional(),
   authorizedTimeWindows: z.array(taggedTimeWindowSchema).optional(),
   preferredTimeWindows: z.array(taggedTimeWindowSchema).optional(),
 });
 
 const alternativesStopSchema = z.object({
-  id: z.string(),
+  id: idSchema,
   type: z.literal("alternatives"),
   alternatives: z.array(singleStopSchema),
 });
@@ -80,51 +84,70 @@ export type Stop = z.infer<typeof stopSchema>;
 
 export const orderSchema = z
   .object({
-    id: z.string(),
+    id: idSchema,
     properties: z.record(z.string(), z.string()).optional(),
-    priority: z.number().default(0),
+    priority: z.number().int().default(0),
     optional: z.boolean().optional(),
-    requiredSkills: z.array(z.string()).optional(),
-    stops: z.array(stopSchema).min(1),
+    requiredSkills: z.array(idSchema).optional(),
+    stops: z.array(stopSchema),
     successiveStops: z.boolean().optional(),
-    maxStopSpan: z.string().optional(),
+    maxStopSpan: durationSchema.optional(),
   })
   .strict();
 
 export type Order = z.infer<typeof orderSchema>;
 
 // --- Resource / VehicleProfile ---------------------------------------------
-// Only the three fields openapi.yaml actually marks required are checked
-// here (id, vehicleProfile, workingTimeWindow) — everything else is typed
-// via the generated schema but not deeply validated in v0 (see module
-// docstring). `.passthrough()` keeps every other field instead of
-// stripping it, since this is a floor on validation, not the full shape.
+// Every field of openapi.yaml's `Resource` is listed, so unknown ones are
+// stripped (as the Python SDK's generated `Resource` ignores them); the
+// nested objects of the rarer ones are not deeply validated (see module
+// docstring).
 
 export type Resource = components["schemas"]["Resource"];
-const resourceSchema = z
-  .object({
-    id: z.string(),
-    vehicleProfile: z.object({ type: z.string() }).passthrough(),
-    workingTimeWindow: z.object({ begin: z.string(), end: z.string() }).passthrough(),
-  })
-  .passthrough() as unknown as z.ZodType<Resource>;
+const resourceSchema = z.object({
+  id: idSchema,
+  properties: z.record(z.string(), z.string()).optional(),
+  state: z.custom<unknown>().optional(),
+  cost: z.custom<unknown>().optional(),
+  CO2EmissionCalculation: z.custom<unknown>().optional(),
+  priority: z.number().int().default(0),
+  skills: z.array(idSchema).optional(),
+  preferredStopTags: z.array(idSchema).optional(),
+  tags: z.array(idSchema).optional(),
+  vehicleProfile: z
+    .object({ type: z.enum(["fly", "pedestrian", "bicycle", "scooter", "motorbike", "car", "truck"]) })
+    .passthrough(),
+  capacities: capacitiesSchema.optional(),
+  departure: positionSchema.optional(),
+  arrival: z.union([positionSchema, z.literal("atFirstPosition")]).optional(),
+  workingTimeWindow: timeWindowSchema,
+  maxWorkingDuration: durationSchema.optional(),
+  maxDistanceInKm: z.number().optional(),
+  maxInterStopDistanceInKm: z.custom<unknown>().optional(),
+  maxInterStopDuration: z.custom<unknown>().optional(),
+  breaks: z.array(z.custom<unknown>()).optional(),
+  operationDurationPolicies: z.array(z.custom<unknown>()).optional(),
+  travelTimeCoefficient: z.number().optional(),
+  emptyThresholdByCapacity: capacitiesSchema.optional(),
+  avoidEarlyLoadings: z.array(z.custom<unknown>()).optional(),
+}) as unknown as z.ZodType<Resource>;
 
 // --- PlanCreate -----------------------------------------------------------
 
 export const planCreateSchema = z
   .object({
     properties: z.record(z.string(), z.string()).optional(),
-    resources: z.array(resourceSchema).min(1),
+    resources: z.array(resourceSchema),
     orders: z.array(orderSchema).optional(),
     additionalOperationDurations: z.array(z.custom<unknown>()).optional(),
     operationDurationPoliciesByResourceTag: z.record(z.string(), z.custom<unknown>()).optional(),
     additionalConstraints: z.array(z.custom<unknown>()).optional(),
     globalConstraints: z.array(z.custom<unknown>()).optional(),
-    accessDurationsByStopTag: z.record(z.string(), z.string()).optional(),
-    overlappingCapacitiesByStopTag: z.record(z.string(), z.number()).optional(),
+    accessDurationsByStopTag: z.record(z.string(), durationSchema).optional(),
+    overlappingCapacitiesByStopTag: z.record(z.string(), z.number().int()).optional(),
     setupDurations: z.array(z.custom<unknown>()).optional(),
     objectives: z.custom<unknown>().optional(),
-    maxOptimizationDuration: z.string().optional(),
+    maxOptimizationDuration: durationSchema.optional(),
     tz: z.string().optional(),
     lateDeparture: z.boolean().default(false),
     sharedCapacities: z.boolean().default(false),
@@ -149,7 +172,14 @@ export function parsePlanCreate(data: unknown): PlanCreate {
 // `orders` retyped to the hand-written `Order` above — the generated
 // `Plan.orders` inherits the same broken `Stop` typing `Order.stops` has.
 
+// `warnings` isn't a field of the plan at all: it's a sibling of `item` on
+// the `EnvelopedPlan` envelope. `submit`/`get`/`update` copy it across so
+// callers get the server's amendments (traffic turned off, a value clamped,
+// ...) on the object they already have. `update()` never sends it back.
 export type Plan = Omit<components["schemas"]["Plan"], "id" | "orders"> & {
   id: string;
   orders?: Order[];
+  warnings: Warning[];
 };
+
+export type Warning = components["schemas"]["Warning"];
