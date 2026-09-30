@@ -1,8 +1,4 @@
-/**
- * Generic pagination wrapper. openapi.yaml only skips pagination when
- * *both* `page` and `itemsPerPage` are absent from the request, so the SDK
- * always sends both explicitly, even when the caller passes neither.
- */
+/** Generic pagination wrapper. `nextPage` is `null` on the last page. */
 
 export interface Page<T> {
   items: T[];

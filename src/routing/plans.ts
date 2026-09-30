@@ -69,7 +69,7 @@ export class PlansAPI {
     const { page = 1, itemsPerPage = 20, archived = "excluded" } = opts;
     const response = await this.transport.request<{
       items?: PlanLight[];
-      paging: { page: number; totalPages: number; total: number; nextPage: number | null };
+      paging: { page: number; totalPages: number; total: number; nextPage?: number };
     }>("GET", "/plans", { params: { page, itemsPerPage, archived } });
     const paging = response!.paging;
     return {
@@ -77,7 +77,8 @@ export class PlansAPI {
       page: paging.page,
       totalPages: paging.totalPages,
       total: paging.total,
-      nextPage: paging.nextPage,
+      // Absent on the last page (openapi.yaml `Paging.nextPage`), not null.
+      nextPage: paging.nextPage ?? null,
     };
   }
 

@@ -48,6 +48,35 @@ describe("plans", () => {
     expect(page.items[0].id).toBe(PLAN_ID);
   });
 
+  it("iterAll() stops on the last page, where the API omits nextPage", async () => {
+    // Observed live: with no next page, `paging` has no `nextPage` at all
+    // (openapi.yaml: "absent on the last page"). iterAll() looped forever.
+    const pages: Record<string, unknown> = {
+      "1": { items: [{ id: "p1" }], paging: { total: 2, totalPages: 2, page: 1, itemsPerPage: 1, nextPage: 2 } },
+      "2": { items: [{ id: "p2" }], paging: { total: 2, totalPages: 2, page: 2, itemsPerPage: 1, previousPage: 1 } },
+    };
+    let calls = 0;
+    server.use(
+      http.get(`${BASE}/plans`, ({ request }) => {
+        calls += 1;
+        return HttpResponse.json(pages[new URL(request.url).searchParams.get("page")!]);
+      })
+    );
+    const ids: string[] = [];
+    for await (const plan of client().routing.plans.iterAll()) ids.push(plan.id!);
+    expect(ids).toEqual(["p1", "p2"]);
+    expect(calls).toBe(2);
+  });
+
+  it("list() reports nextPage as null on the last page", async () => {
+    server.use(
+      http.get(`${BASE}/plans`, () =>
+        HttpResponse.json({ items: [], paging: { total: 0, totalPages: 1, page: 1, itemsPerPage: 20 } })
+      )
+    );
+    expect((await client().routing.plans.list()).nextPage).toBeNull();
+  });
+
   it("404 raises KardinalNotFoundError with the right attributes", async () => {
     server.use(
       http.get(`${BASE}/plans/missing`, () =>
