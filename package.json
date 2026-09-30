@@ -1,8 +1,12 @@
 {
-  "name": "kardinal",
+  "name": "@kardinal-ai/sdk",
   "version": "0.1.0",
   "description": "Kardinal TypeScript SDK: route optimization plans and solutions.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KardinalAI/kardinal-sdk-typescript.git"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,6 +19,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "generate:types": "bash scripts/generate-types.sh",

@@ -84,7 +84,7 @@ program
         "This project uses the `kardinal` TypeScript SDK for route optimization.",
         "",
         "```ts",
-        'import { Kardinal, examples } from "kardinal";',
+        'import { Kardinal, examples } from "@kardinal-ai/sdk";',
         "",
         "const k = new Kardinal(); // reads KARDINAL_API_KEY",
         "const plan = await k.routing.plans.submit(examples.smallDeliveryPlan());",

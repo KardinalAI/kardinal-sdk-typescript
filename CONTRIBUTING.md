@@ -1,0 +1,76 @@
+# Contributing to the Kardinal TypeScript SDK
+
+## Reporting a bug or asking for a change
+
+Open an issue: https://github.com/KardinalAI/kardinal-sdk-typescript/issues.
+Include the SDK version (`kardinal version`, or
+`npm ls @kardinal-ai/sdk`), your Node.js version, and what you did,
+expected and got. Never paste your API key in an issue.
+
+Pull requests are not accepted for now: this GitHub repository is a
+read-only mirror of our internal repository, so a pull request opened here
+can't be merged. Please open an issue instead.
+
+For questions about your account, credits or quotas, contact
+customer.success@kardinal.ai.
+
+## For maintainers
+
+The rest of this file is for the team working on the SDK itself. For using
+it, see `README.md`.
+
+### Setup and checks
+
+```bash
+npm ci
+npm run generate:types   # regenerate src/routing/generated-types.ts
+npm run typecheck
+npm run build
+npm test
+```
+
+CI runs the typecheck, the build and the tests (see `.gitlab-ci.yml`).
+
+### Releasing
+
+Releases are staged on npm by `.github/workflows/publish.yml`, on the
+GitHub mirror, with Trusted Publishing: no API token is stored anywhere.
+The workflow only stages the package; a maintainer approves it before it
+goes live.
+
+1. Open a merge request that sets the new `version` in `package.json`
+   (`npm version X.Y.Z --no-git-tag-version` updates `package-lock.json`
+   too), and merge it.
+2. Create the tag `vX.Y.Z` (matching that version) on the source
+   repository, on the merged commit. The push mirror copies it to GitHub
+   within minutes. Don't create tags on GitHub: the mirror would overwrite
+   them.
+3. On GitHub, the workflow checks that the tag matches the package
+   version, typechecks, builds, tests and packs the tarball, then stages
+   it on npm (Actions tab).
+4. Approve the staged version on npmjs.com (package page, Staged Packages
+   tab) or with `npm stage approve <stage-id>` (`npm stage list
+   @kardinal-ai/sdk` gives the id). Both ask for two-factor
+   authentication. Once approved, it's live at
+   https://www.npmjs.com/package/@kardinal-ai/sdk.
+
+To try the whole chain before a release, set a pre-release version,
+`X.Y.Z-dev.N` (for instance `1.0.0-dev.1`), and tag it `vX.Y.Z-dev.N`:
+the workflow stages it under the `next` dist-tag, so a plain
+`npm install @kardinal-ai/sdk` never installs it. To install one:
+`npm install @kardinal-ai/sdk@next`.
+
+npm never accepts the same version twice, and a staged version already
+takes its number: bump `N` for every new try.
+
+### The spec
+
+`spec/openapi.yaml` is a copy of the `openapi.yaml` of the Kardinal API
+docs (the published version is at https://developers.kardinal.ai/openapi.yaml).
+It isn't fetched at build time. Before a release, check it hasn't drifted
+from the published version; after resyncing it, run
+`npm run generate:types`.
+
+Never hand-edit `src/routing/generated-types.ts`: it's overwritten on
+every regeneration. Notes on the generated types that the hand-written
+layer needs (not the API itself) live in `src/routing/schemas.ts`.

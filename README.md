@@ -9,7 +9,7 @@ Development below). Node.js >= 18 (uses the native `fetch`).
 ## Quickstart
 
 ```ts
-import { Kardinal, examples } from "kardinal";
+import { Kardinal, examples } from "@kardinal-ai/sdk";
 
 const k = new Kardinal(); // reads KARDINAL_API_KEY
 const plan = await k.routing.plans.submit(examples.smallDeliveryPlan());
@@ -23,8 +23,8 @@ right after `submit` returns an empty-but-valid solution. Reaching for
 ## Full walkthrough
 
 ```ts
-import { Kardinal, KardinalValidationError } from "kardinal";
-import { parsePlanCreate } from "kardinal";
+import { Kardinal, KardinalValidationError } from "@kardinal-ai/sdk";
+import { parsePlanCreate } from "@kardinal-ai/sdk";
 
 const k = new Kardinal({ timeoutMs: 30_000, maxRetries: 3 });
 
@@ -128,7 +128,7 @@ fails with a generic-looking auth error that doesn't say so. Point the CLI
 before it reports anything else, for exactly this reason.
 
 `commander` (the CLI's argument parser) is a peer dependency, not a hard
-one — `npm install kardinal` alone doesn't pull it in; `kardinal` the
+one — `npm install @kardinal-ai/sdk` alone doesn't pull it in; `kardinal` the
 command needs `commander` installed alongside it.
 
 ## Known gaps
