@@ -3,8 +3,12 @@
 TypeScript SDK for the Kardinal route-optimization API: submit a plan,
 follow its optimization, retrieve the solution, update it to re-optimize.
 
-**v0 — not yet published to npm.** Clone and build locally for now (see
-Development below). Node.js >= 22.
+```bash
+npm install @kardinal-ai/sdk                 # library only
+npm install @kardinal-ai/sdk commander       # + the `kardinal` command
+```
+
+Node.js >= 22.
 
 ## Quickstart
 
@@ -89,7 +93,7 @@ KardinalError
 ├── KardinalAuthError           NOT_AUTHENTICATED, NOT_ALLOWED
 ├── KardinalValidationError     the 7 codes under 400, with the full error list
 ├── KardinalNotFoundError       NOT_FOUND — raised on every 404, including reads
-├── KardinalRateLimitError      429 (not documented in openapi.yaml as of this writing)
+├── KardinalRateLimitError      429: temporary overload, retry after a pause
 ├── KardinalServerError         INTERNAL_SERVER_ERROR, or any other 5xx
 ├── KardinalTimeoutError        solutions.wait()'s hard timeout elapsed
 └── KardinalConnectionError     DNS/connection/fetch failure, no HTTP response at all
@@ -124,8 +128,9 @@ per deployment), each with its own signing keys — a token only
 authenticates against the host matching whatever console issued it, or
 fails with a generic-looking auth error that doesn't say so. Point the CLI
 (or a plain `new Kardinal()` call) at a non-production host with
-`KARDINAL_BASE_URL`; `kardinal auth check` reports which one is active
-before it reports anything else, for exactly this reason.
+`KARDINAL_BASE_URL`. When the key works, `kardinal auth check` prints the
+active host (`baseUrl`) and the agency the key resolves to; when it
+doesn't, it prints only the error (`code`, `message`, `retryable`), not the host.
 
 `commander` (the CLI's argument parser) is a peer dependency, not a hard
 one — `npm install @kardinal-ai/sdk` alone doesn't pull it in; `kardinal` the
@@ -135,9 +140,9 @@ command needs `commander` installed alongside it.
 
 This SDK is generated against openapi.yaml as it stands, ported from the
 lessons of the Python sibling SDK (`kardinal-sdk-python`) — most of its
-"known gaps" apply here too (no `Idempotency-Key`, no request-id header, no
-`429` shape documented, `getStatus()`/`getObjectives()` naming not matching
-the spec's own inconsistent naming). A few are specific to this stack:
+"known gaps" apply here too (no `Idempotency-Key`, no request-id header,
+`getStatus()`/`getObjectives()` naming not matching the spec's own
+inconsistent naming). A few are specific to this stack:
 
 - **`openapi-typescript` has different codegen defects than
   `datamodel-codegen`, not the same ones.** The Python SDK's
@@ -173,14 +178,4 @@ Verified live against a sandbox environment: `auth check`, and a full
 
 ## Development
 
-```bash
-npm install
-npm run generate:types   # regenerate src/routing/generated-types.ts from spec/openapi.yaml
-npm run build
-npm test
-```
-
-Never hand-edit `src/routing/generated-types.ts` — it's overwritten on
-every regeneration. Notes on the generated types that the hand-written
-layer needs (not the API itself) live in `src/routing/schemas.ts`,
-reapplied after every regeneration.
+See `CONTRIBUTING.md`: setup, checks, the spec and releasing.
