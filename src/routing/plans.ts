@@ -44,6 +44,8 @@ function planFromEnvelope(response: EnvelopedPlan | null): Plan {
 
 export type ArchivedFilter = "excluded" | "included" | "only";
 
+/** `k.routing.plans`: submit, get, update, delete, list/iterAll, start,
+ * stop, getStatus. */
 export class PlansAPI {
   constructor(private readonly transport: Transport) {}
 
@@ -153,7 +155,7 @@ export class PlansAPI {
    * The type returned is `PlanState` (the enum this endpoint's `state`
    * field actually carries), not the unrelated `PlanStatus` object
    * embedded in `Plan.status` — the spec uses both names for different
-   * things (see the README's "known gaps" section). */
+   * things (see the README's "Good to know" section). */
   async getStatus(planId: string): Promise<PlanState> {
     return (await this._getState(planId)).state;
   }

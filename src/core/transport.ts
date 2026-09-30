@@ -15,14 +15,8 @@ export const BASE_URL_ENV_VAR = "KARDINAL_BASE_URL";
 /** SDK package version, read from package.json at runtime (see ./version). */
 import { SDK_VERSION } from "./version.js";
 
-/**
- * `base_url` argument, then `KARDINAL_BASE_URL`, then production.
- *
- * Kardinal has more than one environment, each with its own signing keys:
- * a token only authenticates against the host matching whatever console
- * issued it. Without this, the only way to target anything but production
- * is to pass `baseUrl` in code.
- */
+/** `baseUrl` option, then `KARDINAL_BASE_URL`, then
+ * `https://app.kardinal.ai/api/v2`. An empty value falls through. */
 export function resolveBaseUrl(baseUrl: string | undefined): string {
   return baseUrl || process.env[BASE_URL_ENV_VAR] || DEFAULT_BASE_URL;
 }

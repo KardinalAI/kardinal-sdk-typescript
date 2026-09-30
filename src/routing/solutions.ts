@@ -61,6 +61,7 @@ interface Tracker {
   stoppedSince: number | null;
 }
 
+/** `k.routing.solutions`: get, getObjectives, wait. */
 export class SolutionsAPI {
   constructor(
     private readonly transport: Transport,

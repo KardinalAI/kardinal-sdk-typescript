@@ -7,6 +7,8 @@ import { KardinalError } from "./errors.js";
 
 export const API_KEY_ENV_VAR = "KARDINAL_API_KEY";
 
+/** No API key: neither the `apiKey` option nor the `KARDINAL_API_KEY`
+ * environment variable is set. */
 export class MissingApiKeyError extends KardinalError {
   constructor() {
     super(

@@ -73,9 +73,10 @@ export class KardinalAuthError extends KardinalError {}
 
 /**
  * Any 403 (`NOT_ALLOWED`): a limit of the agency was hit — a plan-size
- * limit (resources, orders, stops), the daily/monthly optimization quota,
- * or exhausted credits. For a builder account a 403 never means a
- * permission refusal (see `NOT_ALLOWED` in openapi.yaml).
+ * limit (resources, orders, stops, stops per order without
+ * `successiveStops`), the daily/monthly optimization quota, or exhausted
+ * credits. For a builder account a 403 never means a permission refusal
+ * (see `NOT_ALLOWED` in openapi.yaml).
  *
  * `.details` says which limit. For a plan-size limit, `.errors` also has an
  * `INVALID_VALUE` entry, placed first by the API, whose `properties.path`
@@ -107,8 +108,9 @@ export class KardinalRateLimitError extends KardinalError {}
 export class KardinalServerError extends KardinalError {}
 
 /**
- * The hard `timeout` guard on `solutions.wait()` elapsed before the plan
- * reached a terminal state. Client-side only — no HTTP response backs it.
+ * The hard `timeoutMs` guard on `solutions.wait()` elapsed before the plan
+ * reached a final state (checked one last time right at the deadline).
+ * Client-side only — no HTTP response backs it.
  */
 export class KardinalTimeoutError extends KardinalError {}
 

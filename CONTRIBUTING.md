@@ -64,6 +64,10 @@ the workflow stages it under the `next` dist-tag, so a plain
 npm never accepts the same version twice, and a staged version already
 takes its number: bump `N` for every new try.
 
+Unlike the Python SDK, whose dry runs go to TestPyPI, a pre-release here
+goes to the real npm registry, kept off `latest` by the `next` dist-tag:
+npm has no separate test registry.
+
 ### The spec
 
 `spec/openapi.yaml` is a copy of the `openapi.yaml` of the Kardinal API
@@ -75,3 +79,39 @@ from the published version; after resyncing it, run
 Never hand-edit `src/routing/generated-types.ts`: it's overwritten on
 every regeneration. Notes on the generated types that the hand-written
 layer needs (not the API itself) live in `src/routing/schemas.ts`.
+
+### Code generation notes
+
+- `openapi-typescript` has different codegen defects than the Python SDK's
+  `datamodel-codegen`, not the same ones. `items: allOf: [$ref: Stop]` in
+  `Order.stops`, which makes `datamodel-codegen` wrap each stop in a
+  `Stop1`/`Stop12`/`Stop13` class, makes `openapi-typescript` generate
+  `Omit<Stop, "type">[]` instead, silently making the required `type`
+  discriminator look absent. Fixed with the hand-written `Order`/`Stop`
+  types and schemas in `src/routing/schemas.ts`, not a spec change.
+- Fields with a `default:` value are generated as required, not optional
+  (`Order.priority`, `Resource.priority`): the opposite of
+  `datamodel-codegen`, where a default makes a field optional. The input
+  type users write (`PlanCreateInput`, from the Zod schema) keeps them
+  optional.
+- `src/routing/schemas.ts` validates `orders`, `stops`, `resources` and the
+  top-level scalar fields with the same rules as the Python SDK; the nested
+  objects of the rarer fields are typed but not deeply validated at
+  runtime (see the module's docstring).
+- The double-`allOf` chain (`Plan.id -> PlanId -> UUID`) that the Python
+  SDK patches in `kardinal/routing/_annotations.py` resolves cleanly here:
+  `PlanId` is just `string`.
+- The webhook endpoints are marked `x-excluded` in the spec and are not
+  implemented by this SDK (their types are still generated).
+
+### What we don't want
+
+The shape a full SDK generator would produce, which this SDK deliberately
+does not reproduce:
+
+```ts
+import { getPlan } from "kardinal-client/api/plan"; // one import per endpoint
+const result = await getPlan({ path: { id: "p1" }, client }); // error returned, not thrown
+// -> { data?: EnvelopedPlan; error?: EnvelopedErrors }: untangle it on every call
+```
+
