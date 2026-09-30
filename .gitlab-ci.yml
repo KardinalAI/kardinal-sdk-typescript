@@ -1,0 +1,13 @@
+image: node:20
+
+stages:
+  - test
+
+test:
+  stage: test
+  before_script:
+    - npm install
+  script:
+    - npm run typecheck
+    - npm run build
+    - npm test
