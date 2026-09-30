@@ -24,8 +24,11 @@ import type { components } from "./generated-types.js";
 
 // --- Scalars (openapi.yaml `RegexIdValidation`, `Duration`) ----------------
 
-const idSchema = z.string().regex(/^[a-zA-Z0-9-._~:@!$,]+$/);
-const durationSchema = z.string().regex(/^P(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(\d+H)?(\d+M)?(\d+S)?)?$/);
+// Same wording as the Python SDK's validation errors.
+const matching = (pattern: RegExp) =>
+  z.string().regex(pattern, { message: `String should match pattern '${pattern.source}'` });
+const idSchema = matching(/^[a-zA-Z0-9-._~:@!$,]+$/);
+const durationSchema = matching(/^P(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(\d+H)?(\d+M)?(\d+S)?)?$/);
 
 // --- Position / TimeWindow / TaggedTimeWindow -----------------------------
 
@@ -176,6 +179,20 @@ export function parsePlanCreate(data: unknown): PlanCreate {
 // the `EnvelopedPlan` envelope. `submit`/`get`/`update` copy it across so
 // callers get the server's amendments (traffic turned off, a value clamped,
 // ...) on the object they already have. `update()` never sends it back.
+// A plan as read back from the server (e.g. a file saved from `plans get`,
+// for `kardinal routing plans update`): same rules as `PlanCreate`, plus a
+// required `id`, and unknown fields kept rather than rejected — `update()`
+// replaces the whole plan, so dropping one would delete it on the server.
+const planSchema = planCreateSchema
+  .extend({ id: z.string(), orders: z.array(orderSchema.passthrough()).optional() })
+  .passthrough();
+
+/** Parses and validates a `Plan` (see `parsePlanCreate`), keeping unknown
+ * fields. */
+export function parsePlan(data: unknown): Plan {
+  return planSchema.parse(data) as unknown as Plan;
+}
+
 export type Plan = Omit<components["schemas"]["Plan"], "id" | "orders"> & {
   id: string;
   orders?: Order[];

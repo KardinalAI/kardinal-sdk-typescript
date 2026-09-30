@@ -56,9 +56,10 @@ function clientHeader(): string {
 }
 
 /** `User-Agent`: SDK version, Node version, OS and architecture, and the
- * version of undici (Node's built-in `fetch`). Nothing personal. */
-function userAgent(): string {
-  const details = [`Node/${process.version}`, `${type()}/${arch()}`];
+ * version of undici (Node's built-in `fetch`). Nothing personal. `cli`
+ * marks calls made by the `kardinal` command. */
+export function userAgent(opts: { cli?: boolean } = {}): string {
+  const details = [...(opts.cli ? ["cli"] : []), `Node/${process.version}`, `${type()}/${arch()}`];
   const undici = process.versions.undici ? ` undici/${process.versions.undici}` : "";
   return `${clientHeader()} (${details.join("; ")})${undici}`;
 }
@@ -72,6 +73,8 @@ export interface TransportOptions {
 
 export class Transport {
   readonly baseUrl: string;
+  /** @internal overridden by the CLI to add its `cli` marker */
+  userAgent = userAgent();
   private readonly apiKey: string;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
@@ -102,7 +105,7 @@ export class Transport {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${this.apiKey}`,
         "X-Kardinal-Client": clientHeader(),
-        "User-Agent": userAgent(),
+        "User-Agent": this.userAgent,
       };
       if (opts.json !== undefined) headers["Content-Type"] = "application/json";
       let response: Response;
