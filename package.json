@@ -14,7 +14,7 @@
     "kardinal": "./dist/cli.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "files": [
     "dist"

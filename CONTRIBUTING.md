@@ -29,7 +29,8 @@ npm run build
 npm test
 ```
 
-CI runs the typecheck, the build and the tests (see `.gitlab-ci.yml`).
+CI runs the typecheck, the build and the tests on every supported Node.js
+version (22, 24 and 26, see `.gitlab-ci.yml`).
 
 ### Releasing
 

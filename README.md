@@ -4,7 +4,7 @@ TypeScript SDK for the Kardinal route-optimization API: submit a plan,
 follow its optimization, retrieve the solution, update it to re-optimize.
 
 **v0 — not yet published to npm.** Clone and build locally for now (see
-Development below). Node.js >= 18 (uses the native `fetch`).
+Development below). Node.js >= 22.
 
 ## Quickstart
 
