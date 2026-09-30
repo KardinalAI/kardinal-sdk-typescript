@@ -59,7 +59,8 @@ export class PlansAPI {
     return planFromEnvelope(response);
   }
 
-  /** `GET /plans/{id}`. The plan as currently stored. */
+  /** `GET /plans/{id}`. The plan as currently stored. Never carries
+   * warnings: they're only returned by `submit()`/`update()`. */
   async get(planId: string): Promise<Plan> {
     const response = await this.transport.request<EnvelopedPlan>("GET", `/plans/${planId}`);
     return planFromEnvelope(response);
@@ -156,7 +157,7 @@ export class PlansAPI {
    * field actually carries), not the unrelated `PlanStatus` object
    * embedded in `Plan.status` — the spec uses both names for different
    * things (see the README's "Good to know" section). */
-  async getStatus(planId: string): Promise<PlanState> {
+  async getStatus(planId: string): Promise<PlanState | (string & {})> {
     return (await this._getState(planId)).state;
   }
 

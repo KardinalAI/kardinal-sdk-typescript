@@ -103,8 +103,8 @@ export class SolutionsAPI {
    *
    * Polls `getStatus` every 10s at first, stretching to every 60s on long
    * optimizations; transient failures (429, 5xx, network) are ridden out.
-   * Meant for scripts — a server tracking many plans should schedule its
-   * own `getStatus` calls instead.
+   * Meant for scripts and notebooks — a server tracking many plans should
+   * schedule its own `getStatus` calls instead.
    *
    * Rejects with `KardinalOptimizationError` when there's no solution to
    * return for this version (`NO_SOLUTION`), a newer version was pushed

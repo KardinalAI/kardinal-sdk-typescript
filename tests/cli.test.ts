@@ -383,3 +383,26 @@ describe("emit and fail", () => {
     expect(JSON.parse(stdout).details).toBe("Monthly credit quota exhausted");
   });
 });
+
+describe("plan files, wording and round trip", () => {
+  it("words a missing field and an unknown field like the Python CLI", async () => {
+    const plan = { resources: [{ id: "r1", workingTimeWindow: { begin: "a", end: "b" } }], bogusField: 1 };
+    expect(await cli("routing", "plans", "validate", file("bad.json", plan))).toBe(1);
+    const issues = JSON.parse(stdout);
+    expect(issues).toContainEqual({ field: "resources.0.vehicleProfile", error: "Field required" });
+    expect(issues).toContainEqual({ field: "bogusField", error: "Extra inputs are not permitted" });
+  });
+
+  it("update keeps fields this SDK doesn't know", async () => {
+    let sent: any;
+    server.use(
+      http.put(PLAN_URL, async ({ request }) => {
+        sent = await request.json();
+        return HttpResponse.json({ item: { id: PLAN_ID, resources: [] } });
+      })
+    );
+    const plan = { id: PLAN_ID, resources: [], futurePlanField: { a: 1 } };
+    expect(await cli("routing", "plans", "update", file("plan.json", plan), "--json")).toBe(0);
+    expect(sent.futurePlanField).toEqual({ a: 1 });
+  });
+});

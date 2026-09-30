@@ -15,3 +15,5 @@ test:
     - npm run typecheck
     - npm run build
     - npm test
+    # What the publish workflow packs, caught before a tag.
+    - npm pack --dry-run

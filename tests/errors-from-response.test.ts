@@ -188,3 +188,11 @@ describe("fromResponse families and flags", () => {
     expect(none(429, "POST").retryable).toBe(true);
   });
 });
+
+describe("fromResponse with empty values", () => {
+  it("synthesizes the code and message when they're empty strings", () => {
+    const err = fromResponse({ status: 404, requestId: null, errors: [{ code: "", message: "" }] });
+    expect(err.code).toBe("NOT_FOUND");
+    expect(err.message).toBe("HTTP 404");
+  });
+});

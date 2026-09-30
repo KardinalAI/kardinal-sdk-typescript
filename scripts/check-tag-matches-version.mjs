@@ -1,6 +1,6 @@
 // Fail unless a release tag (vX.Y.Z, or vX.Y.Z-dev.N for a pre-release)
 // matches the version in package.json. Run by .github/workflows/publish.yml
-// before building, so a mistyped tag can't publish a mislabeled release.
+// before packing, so a mistyped tag can't publish a mislabeled release.
 //
 // Usage: node scripts/check-tag-matches-version.mjs v1.0.0
 

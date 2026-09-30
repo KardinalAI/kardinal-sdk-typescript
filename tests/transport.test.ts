@@ -133,7 +133,7 @@ describe("request headers", () => {
     await transport().request("POST", "/plans", { json: {} });
     const [get, post] = seen;
     expect(get.get("X-Kardinal-Client")).toMatch(/^kardinal-sdk-typescript\/\S+$/);
-    expect(get.get("User-Agent")).toMatch(/^kardinal-sdk-typescript\/\S+ \(Node\/v[\d.]+; \S+\/\S+\)( undici\/\S+)?$/);
+    expect(get.get("User-Agent")).toMatch(/^kardinal-sdk-typescript\/\S+ \(Node\/\d[\d.]*; (Linux|Darwin|Windows)\/\S+\)( undici\/\S+)?$/);
     expect(get.get("Content-Type")).toBeNull();
     expect(post.get("Content-Type")).toBe("application/json");
   });
@@ -225,5 +225,41 @@ describe("empty and non-JSON responses", () => {
     const err = await rejection(transport().request("GET", "/plans/p1"));
     expect(err).toBeInstanceOf(KardinalServerError);
     expect(err.code).toBe("INTERNAL_SERVER_ERROR");
+  });
+});
+
+describe("malformed error bodies", () => {
+  for (const errors of ['"oops"', '["oops", 1]', '{"code": "X"}']) {
+    it(`ignores errors: ${errors}`, async () => {
+      server.use(http.get(`${BASE}/plans/p1`, () => new HttpResponse(`{"errors": ${errors}}`, { status: 404 })));
+      const err = await rejection(transport().request("GET", "/plans/p1"));
+      expect(err.code).toBe("NOT_FOUND");
+      expect(err.errors).toEqual([]);
+      expect(err.details).toBeNull();
+    });
+  }
+
+  it("carries the envelope's warnings on the error", async () => {
+    const warnings = [{ code: "INVALID_VALUE", message: "amended" }];
+    server.use(
+      http.post(`${BASE}/plans`, () =>
+        HttpResponse.json({ errors: [{ code: "INVALID_VALUE", message: "bad" }], warnings }, { status: 400 })
+      )
+    );
+    const err = await rejection(transport().request("POST", "/plans", { json: {} }));
+    expect(err).toBeInstanceOf(KardinalValidationError);
+    expect(err.warnings).toEqual(warnings);
+  });
+});
+
+describe("connect timeout", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("is retryable even on POST: the request was never sent", async () => {
+    const cause = Object.assign(new Error("connect timeout"), { code: "UND_ERR_CONNECT_TIMEOUT" });
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed", { cause }));
+    const err = await rejection(transport().request("POST", "/plans", { json: {} }));
+    expect(err).toBeInstanceOf(KardinalConnectionError);
+    expect(err.retryable).toBe(true);
   });
 });

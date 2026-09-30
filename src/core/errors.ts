@@ -210,8 +210,8 @@ export function fromResponse(opts: {
   // validation code.
   let primary: ApiErrorEntry | undefined = errors[0];
   if (status === 403) primary = errors.find((e) => !VALIDATION_CODES.has(e.code)) ?? primary;
-  const code = primary?.code ?? synthesizeCode(status);
-  const message = primary?.message ?? `HTTP ${status}`;
+  const code = primary?.code || synthesizeCode(status);
+  const message = primary?.message || `HTTP ${status}`;
   const retryable = status === 429 || (status >= 500 && method.toUpperCase() !== "POST");
 
   let Family: ErrorClass;

@@ -49,11 +49,24 @@ function clientHeader(): string {
   return `kardinal-sdk-typescript/${SDK_VERSION}`;
 }
 
+/** OS and architecture, spelled like the Python SDK's (`platform.system()`
+ * and `platform.machine()`): `Linux/x86_64`, `Darwin/arm64`,
+ * `Windows/AMD64`, ... */
+function osAndArch(): string {
+  const os = type() === "Windows_NT" ? "Windows" : type();
+  const machines: Record<string, Record<string, string>> = {
+    x64: { Windows: "AMD64", default: "x86_64" },
+    arm64: { Windows: "ARM64", Linux: "aarch64", default: "arm64" },
+  };
+  const machine = machines[arch()]?.[os] ?? machines[arch()]?.default ?? arch();
+  return `${os}/${machine}`;
+}
+
 /** `User-Agent`: SDK version, Node version, OS and architecture, and the
  * version of undici (Node's built-in `fetch`). Nothing personal. `cli`
  * marks calls made by the `kardinal` command. */
 export function userAgent(opts: { cli?: boolean } = {}): string {
-  const details = [...(opts.cli ? ["cli"] : []), `Node/${process.version}`, `${type()}/${arch()}`];
+  const details = [...(opts.cli ? ["cli"] : []), `Node/${process.versions.node}`, osAndArch()];
   const undici = process.versions.undici ? ` undici/${process.versions.undici}` : "";
   return `${clientHeader()} (${details.join("; ")})${undici}`;
 }
@@ -165,8 +178,8 @@ export class Transport {
     try {
       const body = text ? JSON.parse(text) : null;
       if (body !== null && typeof body === "object" && !Array.isArray(body)) {
-        errors = body.errors ?? [];
-        warnings = body.warnings ?? [];
+        errors = objects(body.errors);
+        warnings = objects(body.warnings);
       }
     } catch {
       errors = [];
@@ -174,4 +187,12 @@ export class Transport {
     }
     return fromResponse({ status: response.status, requestId, errors, warnings, method });
   }
+}
+
+/** The error (or warning) objects of an error body, ignoring anything that
+ * isn't an array of objects: a malformed body must not hide the HTTP error
+ * behind a crash. */
+function objects(value: unknown): ApiErrorEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => entry !== null && typeof entry === "object" && !Array.isArray(entry));
 }

@@ -32,7 +32,7 @@ far, which can be empty or incomplete until the optimization is over.
 ## API reference
 
 All methods hang off the client: `const k = new Kardinal()`. Every one of
-them returns a `Promise`.
+them returns a `Promise`, except `iterAll()`, an async iterator.
 
 | Method | HTTP call | What it does |
 |---|---|---|
@@ -95,8 +95,8 @@ falling back to the environment variable.
 Sandbox and production share the same host: the API key you use determines
 which of your agencies a call applies to.
 
-`timeoutMs` (milliseconds) is each request's timeout, including reading the
-response. `maxRetries` is how many times a read, `update()`, `delete()`,
+`timeoutMs` (milliseconds) is each request's timeout: one deadline for the
+whole request, reading the response included. `maxRetries` is how many times a read, `update()`, `delete()`,
 `start()` or `stop()` is retried after a network error, a `429` or a `5xx`;
 `submit()` is never retried (see "Good to know" below).
 

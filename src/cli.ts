@@ -90,6 +90,19 @@ function failValidation(issues: { field: string; error: string }[]): never {
   throw new ExitRequest(Exit.BUSINESS_ERROR);
 }
 
+/** A Zod issue as `{field, error}`, worded like the Python CLI's (pydantic)
+ * for a missing field and an unknown one, which it reports field by field. */
+function describeIssue(issue: z.ZodIssue): { field: string; error: string }[] {
+  const field = (path: (string | number)[]) => path.join(".");
+  if (issue.code === "unrecognized_keys") {
+    return issue.keys.map((key) => ({ field: field([...issue.path, key]), error: "Extra inputs are not permitted" }));
+  }
+  if (issue.code === "invalid_type" && issue.received === "undefined") {
+    return [{ field: field(issue.path), error: "Field required" }];
+  }
+  return [{ field: field(issue.path), error: issue.message }];
+}
+
 /** Runs a command body, translating the errors a user can cause (API
  * refusal, invalid plan file) into clean JSON output and exit code 1. */
 async function run(body: () => unknown | Promise<unknown>): Promise<void> {
@@ -97,9 +110,7 @@ async function run(body: () => unknown | Promise<unknown>): Promise<void> {
     await body();
   } catch (e) {
     if (e instanceof KardinalError) fail(e);
-    if (e instanceof z.ZodError) {
-      failValidation(e.issues.map((issue) => ({ field: issue.path.join("."), error: issue.message })));
-    }
+    if (e instanceof z.ZodError) failValidation(e.issues.flatMap(describeIssue));
     if (e instanceof SyntaxError) failValidation([{ field: "", error: `Invalid JSON: ${e.message}` }]);
     throw e;
   }

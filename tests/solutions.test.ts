@@ -349,3 +349,24 @@ describe("pollIntervalMs", () => {
     expect(pollIntervalMs(elapsed * 1000)).toBe(expected * 1000);
   });
 });
+
+describe("wait() and states this SDK doesn't know", () => {
+  it("keeps polling through an unknown state", async () => {
+    mockPlan();
+    mockStates([
+      [0, "someFutureState", 1],
+      [30, "optimized", 1],
+    ]);
+    mockSolution();
+    const { value } = await settle(client().routing.solutions.wait(PLAN_ID, 600_000));
+    expect(value?.finalState).toBe("optimized");
+  });
+
+  it("names an unknown state in the timeout message", async () => {
+    mockPlan();
+    mockStates([[0, "someFutureState", 1]]);
+    const { error } = await settle(client().routing.solutions.wait(PLAN_ID, 30_000));
+    expect(error).toBeInstanceOf(KardinalTimeoutError);
+    expect((error as Error).message).toContain("someFutureState");
+  });
+});

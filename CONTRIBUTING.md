@@ -125,6 +125,24 @@ layer needs (not the API itself) live in `src/routing/schemas.ts`.
 - The webhook endpoints are marked `x-excluded` in the spec and are not
   implemented by this SDK (their types are still generated).
 
+### Differences with the Python SDK
+
+The two SDKs behave the same; what differs, on purpose or by the nature of
+each stack:
+
+- Local validation: this SDK doesn't validate the inside of the rarer
+  nested objects (`cost`, `breaks`, `objectives`, constraints, ...), and
+  keeps unknown fields there; the Python SDK's generated models do both.
+  Zod, here, rejects strings for numbers and booleans (`"1"`, `"true"`),
+  which pydantic accepts.
+- Timeout: `timeoutMs` covers the whole request, response included;
+  `httpx` applies the Python SDK's `timeout` to each phase separately.
+- Validation messages (`plans validate`): the wording of pattern, missing
+  field and unknown field errors is shared; other messages come from Zod
+  here and from pydantic there.
+- There's no `close()`: `fetch` has no connection pool of the SDK's own.
+- Pre-releases: the npm `next` dist-tag here, TestPyPI there.
+
 ### What we don't want
 
 The shape a full SDK generator would produce, which this SDK deliberately

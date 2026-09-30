@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "./setup.js";
 import { ZodError } from "zod";
 import { Kardinal, KardinalNotFoundError, KardinalConnectionError } from "../src/index.js";
+import { orderSchema } from "../src/routing/schemas.js";
 
 const BASE = "https://app.kardinal.ai/api/v2";
 const PLAN_ID = "4cbd0ab8-282c-4b30-b981-29e1ed8a2016";
@@ -283,5 +284,74 @@ describe("plans", () => {
       http.get(`${BASE}/plans/p1/state`, () => HttpResponse.json({ item: { state: "someFutureState" } }))
     );
     expect(await client().routing.plans.getStatus("p1")).toBe("someFutureState");
+  });
+});
+
+describe("plans, more", () => {
+  const STOP = { type: "single" as const, id: "s1", position: { lat: 48.85, lon: 2.35 } };
+
+  it("an order appended to a fetched plan is sent", async () => {
+    let sentBody: any;
+    server.use(
+      http.get(`${BASE}/plans/${PLAN_ID}`, () =>
+        HttpResponse.json({ item: { id: PLAN_ID, resources: [], orders: [{ id: "o1", priority: 0, stops: [STOP] }] } })
+      ),
+      http.put(`${BASE}/plans/${PLAN_ID}`, async ({ request }) => {
+        sentBody = await request.json();
+        return HttpResponse.json({ item: { id: PLAN_ID, resources: [] } });
+      })
+    );
+    const plans = client().routing.plans;
+    const plan = await plans.get(PLAN_ID);
+    plan.orders!.push({ id: "o2", priority: 0, stops: [STOP] });
+    await plans.update(plan);
+    expect(sentBody.orders.map((o: { id: string }) => o.id)).toEqual(["o1", "o2"]);
+  });
+
+  it("a hand-built order still rejects unknown fields", () => {
+    expect(() => orderSchema.parse({ id: "o1", stops: [], typo: true })).toThrow(ZodError);
+  });
+
+  it("a hand-built plan still rejects an unknown enum value", async () => {
+    await expect(
+      client().routing.plans.submit({ resources: [], orders: [{ id: "o1", stops: [{ ...STOP, kind: "someFutureKind" as any }] }] })
+    ).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("list() sends archived=only", async () => {
+    let url: URL | undefined;
+    server.use(
+      http.get(`${BASE}/plans`, ({ request }) => {
+        url = new URL(request.url);
+        return HttpResponse.json({ items: [], paging: { total: 0, totalPages: 1, page: 1 } });
+      })
+    );
+    await client().routing.plans.list({ archived: "only" });
+    expect(url?.searchParams.get("archived")).toBe("only");
+  });
+
+  it("responses with enum values this SDK doesn't know are passed through", async () => {
+    server.use(
+      http.post(`${BASE}/plans`, () =>
+        HttpResponse.json(
+          {
+            item: { id: PLAN_ID, resources: [], state: "someFutureState" },
+            warnings: [{ code: "SOME_FUTURE_CODE", message: "m" }],
+          },
+          { status: 201 }
+        )
+      ),
+      http.get(`${BASE}/plans`, () =>
+        HttpResponse.json({
+          items: [{ id: PLAN_ID, state: "someFutureState" }],
+          paging: { total: 1, totalPages: 1, page: 1 },
+        })
+      )
+    );
+    const plans = client().routing.plans;
+    const plan = await plans.submit({ resources: [] });
+    expect(plan.state).toBe("someFutureState");
+    expect(plan.warnings[0].code).toBe("SOME_FUTURE_CODE");
+    expect((await plans.list()).items[0].state).toBe("someFutureState");
   });
 });
