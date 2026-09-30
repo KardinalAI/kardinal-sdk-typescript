@@ -112,9 +112,13 @@ says which one. For a plan-size limit, `.errors` also holds an
 `INVALID_VALUE` entry whose `properties.path` and `properties.details`
 name the field and the allowed value.
 
-`retryable` is computed by the SDK; an unrecognized `code` falls back to
-the family matching the HTTP status rather than disappearing, since the
-spec documents that new codes may be added in a non-breaking release.
+`.retryable` is computed by the SDK and means "retrying is safe and may
+succeed": true for a `429`, and for a `5xx` or a connection error, except
+when a `submit()` may have reached the server (the plan may then already
+exist: check with `list()` before submitting again). An unrecognized `code`
+falls back to the family matching the HTTP status rather than disappearing,
+since the spec documents that new codes may be added in a non-breaking
+release.
 
 ## The CLI
 

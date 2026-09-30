@@ -115,6 +115,9 @@ export class KardinalTimeoutError extends KardinalError {}
 /**
  * A network-level failure (DNS, connection refused, fetch aborted, ...)
  * that never got an HTTP response at all, after retries were exhausted.
+ * `retryable` unless the request was a POST that may have reached the
+ * server: a connection that never opened is safe to retry, a response lost
+ * after sending a POST isn't (the plan may exist).
  * Client-side only, same as KardinalTimeoutError — without this, a
  * `catch (e) { if (e instanceof KardinalError) ... }` written to catch
  * "anything that can go wrong talking to the API" would miss what's
@@ -158,14 +161,20 @@ function synthesizeCode(status: number): string {
  * Build the right exception for a failed HTTP response. `errors` is the
  * parsed `EnvelopedErrors.errors` list (empty for a 429, which carries no
  * envelope at all), `warnings` is `EnvelopedErrors.warnings`.
+ *
+ * `retryable` means "retrying is safe and may succeed": a 429 always (the
+ * cluster refuses it before any processing), a 5xx except on POST, where
+ * the plan may have been created before the server failed and a retry
+ * could create it twice.
  */
 export function fromResponse(opts: {
   status: number;
   requestId: string | null;
   errors: ApiErrorEntry[];
   warnings?: ApiErrorEntry[];
+  method?: string;
 }): KardinalError {
-  const { status, requestId, errors, warnings } = opts;
+  const { status, requestId, errors, warnings, method = "GET" } = opts;
   // A plan-size limit comes back as a 403 whose first error is the
   // INVALID_VALUE naming the field, followed by the error that explains the
   // 403 itself: for a 403, `code` comes from the first error that isn't a
@@ -174,7 +183,7 @@ export function fromResponse(opts: {
   if (status === 403) primary = errors.find((e) => !VALIDATION_CODES.has(e.code)) ?? primary;
   const code = primary?.code ?? synthesizeCode(status);
   const message = primary?.message ?? `HTTP ${status}`;
-  const retryable = status === 429 || status >= 500;
+  const retryable = status === 429 || (status >= 500 && method.toUpperCase() !== "POST");
 
   let Family: ErrorClass;
   if (status === 403) Family = KardinalLimitError;

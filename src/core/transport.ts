@@ -30,6 +30,22 @@ export function resolveBaseUrl(baseUrl: string | undefined): string {
   return baseUrl || process.env[BASE_URL_ENV_VAR] || DEFAULT_BASE_URL;
 }
 
+// Error codes Node's fetch reports (on `error.cause.code`) when the
+// connection never opened: nothing was sent, so even a POST is safe to
+// retry. Anything else (reset socket, our own timeout abort) may have
+// happened after the request reached the server.
+const NEVER_SENT_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+function neverSent(error: unknown): boolean {
+  const code = (error as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof code === "string" && NEVER_SENT_CODES.has(code);
+}
+
 function clientHeader(): string {
   return `kardinal-sdk-typescript/${SDK_VERSION}`;
 }
@@ -94,7 +110,7 @@ export class Transport {
           code: "CONNECTION_ERROR",
           status: 0,
           requestId: null,
-          retryable: false,
+          retryable: neverSent(cause) || method.toUpperCase() !== "POST",
         });
       }
       clearTimeout(timer);
@@ -102,7 +118,20 @@ export class Transport {
       if (response.status < 300) {
         if (response.status === 204) return null;
         const text = await response.text();
-        return text ? (JSON.parse(text) as T) : null;
+        if (!text) return null;
+        try {
+          return JSON.parse(text) as T;
+        } catch (cause) {
+          throw new KardinalError(
+            `Server returned a ${response.status} with a non-JSON body: ${(cause as Error).message}`,
+            {
+              code: "INVALID_RESPONSE_BODY",
+              status: response.status,
+              requestId: response.headers.get("X-Request-Id"),
+              retryable: false,
+            }
+          );
+        }
       }
 
       if (attempt < this.maxRetries && isRetryable(method, { status: response.status, networkError: false })) {
@@ -110,11 +139,11 @@ export class Transport {
         await sleep(attempt);
         continue;
       }
-      throw await this.errorFor(response);
+      throw await this.errorFor(response, method);
     }
   }
 
-  private async errorFor(response: Response): Promise<KardinalError> {
+  private async errorFor(response: Response, method: string): Promise<KardinalError> {
     const requestId = response.headers.get("X-Request-Id");
     let errors: ApiErrorEntry[] = [];
     let warnings: ApiErrorEntry[] = [];
@@ -129,6 +158,6 @@ export class Transport {
       errors = [];
       warnings = [];
     }
-    return fromResponse({ status: response.status, requestId, errors, warnings });
+    return fromResponse({ status: response.status, requestId, errors, warnings, method });
   }
 }
