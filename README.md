@@ -92,8 +92,10 @@ The option wins over the environment variable, which wins over the
 default. `apiKey: ""` throws `EmptyApiKeyError` rather than silently
 falling back to the environment variable.
 
-Sandbox and production share the same host: the API key you use determines
-which of your agencies a call applies to.
+An API key is valid only against the host it was issued for. Sent to a
+different host it is rejected as though the key itself were invalid, so the
+error points at the key rather than the address. Set `baseUrl` (or
+`KARDINAL_BASE_URL`) to the host the key belongs to.
 
 `timeoutMs` (milliseconds) is each request's timeout: one deadline for the
 whole request, reading the response included. `maxRetries` is how many times a read, `update()`, `delete()`,
@@ -219,6 +221,15 @@ anyway — everything else stays checked:
 ```ts
 await k.routing.plans.update(plan, { allowUnknown: ["aFieldAddedByTheApi"] });
 ```
+
+`update()`'s exact check needs the plan to have been read by the same
+client, in this process — it remembers, per plan id, which unknown keys the
+server sent. A plan read elsewhere falls back to the warning.
+
+A name listed there is allowed **anywhere in the plan**, not only on the
+object you had in mind — so prefer a distinctive name over a common one
+like `priority`, which would stop being checked on every resource, order
+and stop at once.
 
 All of them are importable from `@kardinal-ai/sdk` itself
 (`import { KardinalNotFoundError } from "@kardinal-ai/sdk"`), as are

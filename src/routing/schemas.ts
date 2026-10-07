@@ -204,6 +204,13 @@ function suggestionFor(key: string, known: readonly string[]): string | undefine
   return near[0];
 }
 
+// NOTE FOR A ZOD 4 UPGRADE: the three helpers below read Zod's internals —
+// `_def.innerType`, `_def.schema`, `_def.options`, `_def.type`, `_def.shape()`
+// — none of which is public API. Zod 4 renames them and drops
+// `.passthrough()` in favour of `z.looseObject`, so this section has to be
+// rewritten, not merely bumped. The `^3` range in package.json keeps that
+// from happening by accident.
+
 /** Looks through the wrappers Zod puts around a schema (optional, default,
  * nullable) to the object or array underneath. */
 function unwrap(node: any): any {
@@ -290,7 +297,27 @@ export function parsePlanCreate(data: unknown): PlanCreate {
 // required `id`, and unknown fields kept rather than rejected — `update()`
 // replaces the whole plan, so dropping one would delete it on the server.
 export const planSchema = planCreateSchema
-  .extend({ id: z.string(), orders: z.array(orderSchema.passthrough()).optional() })
+  .extend({
+    id: z.string(),
+    orders: z.array(orderSchema.passthrough()).optional(),
+    // Server-computed, and declared here so they are not mistaken for
+    // unknown keys: a plan read by `get()` carries them, and `update()`
+    // strips them from the body rather than echoing them back.
+    agencyId: z.string().optional(),
+    version: z.number().optional(),
+    running: z.boolean().optional(),
+    status: z.custom<unknown>().optional(),
+    state: z.custom<unknown>().optional(),
+    nbResources: z.number().optional(),
+    nbOrders: z.number().optional(),
+    createdAt: z.string().optional(),
+    createdBy: z.string().optional(),
+    updatedAt: z.string().optional(),
+    updatedBy: z.string().optional(),
+    archivedAt: z.string().optional(),
+    // This SDK's own field (see `Plan`), carried on the object, never sent.
+    warnings: z.array(z.custom<unknown>()).optional(),
+  })
   .passthrough();
 
 /** Parses and validates a `Plan` (see `parsePlanCreate`), keeping unknown

@@ -140,3 +140,70 @@ describe("update()", () => {
     warn.mockRestore();
   });
 });
+
+describe("update(), on a plan the caller copied", () => {
+  // Provenance is keyed on the plan's id, not on object identity: `{ ...plan }`
+  // is how TypeScript edits immutably, and a plan that went through a cache, a
+  // queue or an HTTP hop arrives as fresh JSON. Keying on identity would have
+  // held for direct mutation of the returned object and almost nothing else.
+  const copies: Array<[string, (plan: any) => any]> = [
+    ["used directly", (plan) => plan],
+    ["after a spread", (plan) => ({ ...plan, resources: plan.resources.map((r: any) => ({ ...r })) })],
+    ["after a JSON round trip", (plan) => JSON.parse(JSON.stringify(plan))],
+  ];
+
+  for (const [label, copy] of copies) {
+    it(`catches a typo ${label}`, async () => {
+      serving([{ ...RESOURCE, modeAddedByApi: "standard" }]);
+      const plans = client().routing.plans;
+      const plan = copy(await plans.get(PLAN_ID));
+      plan.resources[0].maxWorkingDurationn = "PT8H";
+      await expect(plans.update(plan)).rejects.toMatchObject({
+        paths: ["plan.resources[0].maxWorkingDurationn"],
+      });
+    });
+
+    it(`still sends the API's own field ${label}`, async () => {
+      const state = serving([{ ...RESOURCE, modeAddedByApi: "standard" }]);
+      const plans = client().routing.plans;
+      await plans.update(copy(await plans.get(PLAN_ID)));
+      expect(state.sent.resources[0].modeAddedByApi).toBe("standard");
+    });
+  }
+
+  it("does not vouch for what another client read", async () => {
+    // Two clients are two callers; one shouldn't excuse the other's keys.
+    serving([{ ...RESOURCE, modeAddedByApi: "standard" }]);
+    const plan = await client().routing.plans.get(PLAN_ID);
+    const warnings: string[] = [];
+    const other = new Kardinal({ apiKey: "test-key", onWarning: (m) => warnings.push(m) });
+    (plan.resources[0] as any).maxWorkingDurationn = "PT8H";
+    await other.routing.plans.update(plan);
+    expect(warnings).toHaveLength(1); // the weaker check, not a refusal
+  });
+});
+
+describe("onWarning", () => {
+  it("routes the warning instead of writing to the console", async () => {
+    serving([]);
+    const seen: Array<{ message: string; fields: unknown[] }> = [];
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const k = new Kardinal({
+      apiKey: "test-key",
+      onWarning: (message, fields) => seen.push({ message, fields }),
+    });
+    await k.routing.plans.update(
+      JSON.parse(
+        JSON.stringify({
+          id: PLAN_ID,
+          resources: [{ ...RESOURCE, maxWorkingDurationn: "PT8H" }],
+          warnings: [],
+        }),
+      ),
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0].fields).toHaveLength(1);
+    expect(consoleWarn).not.toHaveBeenCalled();
+    consoleWarn.mockRestore();
+  });
+});

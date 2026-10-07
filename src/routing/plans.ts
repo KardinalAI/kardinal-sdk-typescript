@@ -38,34 +38,36 @@ function stripReadOnly(plan: Plan): Record<string, unknown> {
 
 type EnvelopedPlan = { item: Omit<Plan, "warnings">; warnings?: Warning[] };
 
-/** Unknown keys the server sent, per plan it sent them on.
+/** Unknown keys the server sent, per plan id it sent them on.
  *
  * The API drops any key it doesn't know — checked against the sandbox on
  * both POST and PUT — so a key it sends back is a real field by
  * construction, and one only the caller added is a typo. `update()` uses
  * this to tell them apart.
  *
- * Keyed on the plan object itself, so it is never serialized and never
- * reaches the wire. A plan rebuilt from JSON, or copied with a spread, is a
- * different object and falls back to the weaker check: a warning on
- * near-misses only. That never refuses a real API field, but it no longer
- * catches a typo either.
+ * Keyed on the plan's id rather than on the object: `{ ...plan }` is how
+ * TypeScript edits immutably, and a plan passing through a cache, a queue
+ * or an HTTP hop arrives as fresh JSON. Keying on identity would have made
+ * the check hold for direct mutation of the returned object and almost
+ * nothing else. An id survives all of it.
+ *
+ * Held per client rather than per module: two clients in one process are
+ * two different callers, and one shouldn't vouch for what the other read.
+ * A plan read by another client, or in another process, has no record and
+ * falls back to the weaker check — a warning on near-misses only, which
+ * never refuses a real API field but no longer catches a typo either.
+ * Capped so a long-lived client can't grow it without bound; the oldest
+ * entry goes first, and losing one only costs that fallback.
  */
-const serverKeys = new WeakMap<object, Set<string>>();
+const SERVER_KEYS_REMEMBERED = 64;
 
-/** `plan.resources[0].modeAddedByApi` -> `resources.modeAddedByApi`: the
- * index is dropped so the key is recognised wherever it sits, since a field
- * the API added carries the same name on every object of that kind, while
- * `resources[3]` moves as soon as the caller reorders or drops one. */
 function shapeKey(field: { path: string; key: string }): string {
   return field.path.replace(/\[\d+\]/g, "").replace(/^plan\./, "");
 }
 
 /** `EnvelopedPlan.item`, plus `EnvelopedPlan.warnings` copied onto it. */
 function planFromEnvelope(response: EnvelopedPlan | null): Plan {
-  const plan = { ...response!.item, warnings: response!.warnings ?? [] } as Plan;
-  serverKeys.set(plan, new Set(unknownFields(plan, planSchema).map(shapeKey)));
-  return plan;
+  return { ...response!.item, warnings: response!.warnings ?? [] } as Plan;
 }
 
 /** Throws on anything left after the caller's `allowUnknown`.
@@ -88,7 +90,28 @@ export type ArchivedFilter = "excluded" | "included" | "only";
 /** `k.routing.plans`: submit, get, update, delete, list/iterAll, start,
  * stop, getStatus. */
 export class PlansAPI {
-  constructor(private readonly transport: Transport) {}
+  private readonly serverKeys = new Map<string, Set<string>>();
+
+  constructor(
+    private readonly transport: Transport,
+    private readonly onWarning: (message: string, fields: UnknownField[]) => void = (m) =>
+      console.warn(m),
+  ) {}
+
+  private rememberServerKeys(planId: string, keys: Set<string>): void {
+    this.serverKeys.delete(planId); // re-insert, so it counts as most recent
+    this.serverKeys.set(planId, keys);
+    for (const oldest of this.serverKeys.keys()) {
+      if (this.serverKeys.size <= SERVER_KEYS_REMEMBERED) break;
+      this.serverKeys.delete(oldest);
+    }
+  }
+
+  private planFromEnvelope(response: EnvelopedPlan | null): Plan {
+    const plan = planFromEnvelope(response);
+    this.rememberServerKeys(plan.id, new Set(unknownFields(plan, planSchema).map(shapeKey)));
+    return plan;
+  }
 
   /** `POST /plans`. Creates a new plan and starts optimization — billed in
    * full. The server assigns `id`. The plan is validated locally first
@@ -98,14 +121,14 @@ export class PlansAPI {
     refuseUnknown(unknownFields(plan), opts.allowUnknown);
     const body = parsePlanCreate(plan);
     const response = await this.transport.request<EnvelopedPlan>("POST", "/plans", { json: body });
-    return planFromEnvelope(response);
+    return this.planFromEnvelope(response);
   }
 
   /** `GET /plans/{id}`. The plan as currently stored. Never carries
    * warnings: they're only returned by `submit()`/`update()`. */
   async get(planId: string): Promise<Plan> {
     const response = await this.transport.request<EnvelopedPlan>("GET", `/plans/${planId}`);
-    return planFromEnvelope(response);
+    return this.planFromEnvelope(response);
   }
 
   /** `PUT /plans/{id}`. Sends the complete plan, replacing the stored one
@@ -121,7 +144,7 @@ export class PlansAPI {
     opts: { force?: boolean; allowUnknown?: string[] } = {},
   ): Promise<Plan> {
     const unknown = unknownFields(plan, planSchema);
-    const fromServer = serverKeys.get(plan);
+    const fromServer = this.serverKeys.get(plan.id);
     if (fromServer) {
       refuseUnknown(
         unknown.filter((field) => !fromServer.has(shapeKey(field))),
@@ -134,14 +157,14 @@ export class PlansAPI {
         const listed = likelyTypos
           .map((f) => `${f.path} (did you mean ${f.suggestion}?)`)
           .join(", ");
-        console.warn(`Possible typo(s) in the plan being sent: ${listed}`);
+        this.onWarning(`Possible typo(s) in the plan being sent: ${listed}`, likelyTypos);
       }
     }
     const response = await this.transport.request<EnvelopedPlan>("PUT", `/plans/${plan.id}`, {
       json: stripReadOnly(plan),
       params: { force: String(opts.force ?? false) },
     });
-    return planFromEnvelope(response);
+    return this.planFromEnvelope(response);
   }
 
   /** `DELETE /plans/{id}`. Permanently deletes the plan and its solution;
