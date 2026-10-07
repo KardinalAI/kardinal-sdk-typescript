@@ -1,19 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { parsePlanCreate, orderSchema } from "../src/routing/schemas.js";
+import { parsePlanCreate, orderSchema, unknownFields } from "../src/routing/schemas.js";
+
+const stop = { type: "single" as const, id: "s1", position: { lat: 48.85, lon: 2.35 } };
 
 describe("parsePlanCreate", () => {
   it("rejects an empty plan (missing resources)", () => {
     expect(() => parsePlanCreate({})).toThrow(z.ZodError);
   });
 
-  it("rejects an unknown field (strict mode)", () => {
-    expect(() => parsePlanCreate({ resources: [{ id: "r1" }], bogusField: 123 })).toThrow();
+  it("reports an unknown field at the top level", () => {
+    const found = unknownFields({ resources: [{ id: "r1" }], bogusField: 123 });
+    expect(found.map((f) => f.path)).toEqual(["plan.bogusField"]);
   });
 
-  it("rejects a client-supplied id, like the real Builder API would", () => {
-    // PlanCreate has no `id` field at all — strict() rejects it as unknown.
-    expect(() => parsePlanCreate({ id: "should-not-exist", resources: [{ id: "r1" }] })).toThrow();
+  it("reports a client-supplied id rather than letting it through", () => {
+    // PlanCreate has no `id`: the server assigns one. Sending an `id` anyway
+    // is not refused by the API — it answers 201 with a different id — so a
+    // caller reusing the one they sent would address a plan that doesn't
+    // exist. submit() refuses it instead.
+    const found = unknownFields({ id: "should-not-exist", resources: [{ id: "r1" }] });
+    expect(found.map((f) => f.path)).toEqual(["plan.id"]);
   });
 
   it("accepts a minimal valid plan", () => {
@@ -98,9 +105,39 @@ describe("parsePlanCreate (rules shared with the Python SDK)", () => {
     );
   });
 
-  it("drops unknown resource fields and applies the resource priority default", () => {
+  it("keeps an unknown resource field so submit() can report it", () => {
+    // Dropping it here is what made a misspelled optional field
+    // undetectable: the plan was sent without it and came back valid.
     const plan = parsePlanCreate({ resources: [{ ...resource, bogus: 1 }] });
-    expect(plan.resources[0]).not.toHaveProperty("bogus");
+    expect(plan.resources[0]).toHaveProperty("bogus");
     expect(plan.resources[0].priority).toBe(0);
+  });
+
+  it("reports an unknown field at every level, with a suggestion", () => {
+    const found = unknownFields({
+      objectivs: {},
+      resources: [{ ...resource, maxWorkingDurationn: "PT8H" }],
+      orders: [
+        { id: "o1", prioritty: 2, stops: [{ ...stop, operationDurationn: "PT5M" }] },
+      ],
+    });
+    expect(found.map((f) => f.path).sort()).toEqual([
+      "plan.objectivs",
+      "plan.orders[0].prioritty",
+      "plan.orders[0].stops[0].operationDurationn",
+      "plan.resources[0].maxWorkingDurationn",
+    ]);
+    expect(found.find((f) => f.key === "maxWorkingDurationn")?.suggestion).toBe("maxWorkingDuration");
+  });
+
+  it("says nothing about a free-form map or a plausible future API field", () => {
+    expect(
+      unknownFields({
+        resources: [{ ...resource, capacities: { anything: 3 }, properties: { free: "form" } }],
+      }),
+    ).toEqual([]);
+    // Four edits from maxWorkingDuration: a field the API could add, not a slip.
+    const future = unknownFields({ resources: [{ ...resource, maxDrivingDuration: "PT4H" }] });
+    expect(future[0].suggestion).toBeUndefined();
   });
 });

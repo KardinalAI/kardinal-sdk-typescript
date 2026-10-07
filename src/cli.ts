@@ -18,9 +18,9 @@ import { Command, CommanderError, InvalidArgumentError, Option } from "commander
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Kardinal } from "./index.js";
-import { KardinalError } from "./core/errors.js";
+import { KardinalError, UnknownFieldError } from "./core/errors.js";
 import { userAgent } from "./core/transport.js";
-import { parsePlan, parsePlanCreate } from "./routing/schemas.js";
+import { parsePlan, parsePlanCreate, unknownFields } from "./routing/schemas.js";
 import { SDK_VERSION } from "./core/version.js";
 import { z } from "zod";
 
@@ -109,6 +109,13 @@ async function run(body: () => unknown | Promise<unknown>): Promise<void> {
   try {
     await body();
   } catch (e) {
+    if (e instanceof UnknownFieldError)
+      failValidation(
+        e.fields.map((f) => ({
+          field: f.path.replace(/^plan\./, ""),
+          error: f.suggestion ? `Unknown field — did you mean ${f.suggestion}?` : "Unknown field",
+        })),
+      );
     if (e instanceof KardinalError) fail(e);
     if (e instanceof z.ZodError) failValidation(e.issues.flatMap(describeIssue));
     if (e instanceof SyntaxError) failValidation([{ field: "", error: `Invalid JSON: ${e.message}` }]);
@@ -317,7 +324,22 @@ function buildProgram(): Command {
     .argument("<file>", "JSON file with the plan.", existingFile)
     .action((file) =>
       run(() => {
-        parsePlanCreate(readJsonFile(file));
+        const data = readJsonFile(file);
+        // Both kinds of problem at once: a malformed plan usually has more
+        // than one, and reporting only the first sends the caller round the
+        // loop. The unknown-field check is the one submit() makes, without
+        // which this would answer OK to a plan submit() goes on to refuse.
+        const unknown = unknownFields(data).map((f) => ({
+          field: f.path.replace(/^plan\./, ""),
+          error: f.suggestion ? `Unknown field — did you mean ${f.suggestion}?` : "Unknown field",
+        }));
+        try {
+          parsePlanCreate(data);
+        } catch (e) {
+          if (e instanceof z.ZodError) failValidation([...e.issues.flatMap(describeIssue), ...unknown]);
+          throw e;
+        }
+        if (unknown.length > 0) failValidation(unknown);
         console.log("OK");
       })
     );

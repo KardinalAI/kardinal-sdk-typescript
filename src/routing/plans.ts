@@ -5,8 +5,9 @@
 import type { Transport } from "../core/transport.js";
 import { iterAll } from "../core/pagination.js";
 import type { Page } from "../core/pagination.js";
-import { parsePlanCreate } from "./schemas.js";
-import type { PlanCreateInput, Plan, Warning } from "./schemas.js";
+import { parsePlanCreate, planSchema, unknownFields } from "./schemas.js";
+import { UnknownFieldError } from "../core/errors.js";
+import type { PlanCreateInput, Plan, Warning, UnknownField } from "./schemas.js";
 import type { PlanLight, PlanReference, PlanState } from "./types.js";
 
 // Fields openapi.yaml marks `readOnly`, which update() must not echo back
@@ -37,9 +38,49 @@ function stripReadOnly(plan: Plan): Record<string, unknown> {
 
 type EnvelopedPlan = { item: Omit<Plan, "warnings">; warnings?: Warning[] };
 
+/** Unknown keys the server sent, per plan it sent them on.
+ *
+ * The API drops any key it doesn't know — checked against the sandbox on
+ * both POST and PUT — so a key it sends back is a real field by
+ * construction, and one only the caller added is a typo. `update()` uses
+ * this to tell them apart.
+ *
+ * Keyed on the plan object itself, so it is never serialized and never
+ * reaches the wire. A plan rebuilt from JSON, or copied with a spread, is a
+ * different object and falls back to the weaker check: a warning on
+ * near-misses only. That never refuses a real API field, but it no longer
+ * catches a typo either.
+ */
+const serverKeys = new WeakMap<object, Set<string>>();
+
+/** `plan.resources[0].modeAddedByApi` -> `resources.modeAddedByApi`: the
+ * index is dropped so the key is recognised wherever it sits, since a field
+ * the API added carries the same name on every object of that kind, while
+ * `resources[3]` moves as soon as the caller reorders or drops one. */
+function shapeKey(field: { path: string; key: string }): string {
+  return field.path.replace(/\[\d+\]/g, "").replace(/^plan\./, "");
+}
+
 /** `EnvelopedPlan.item`, plus `EnvelopedPlan.warnings` copied onto it. */
 function planFromEnvelope(response: EnvelopedPlan | null): Plan {
-  return { ...response!.item, warnings: response!.warnings ?? [] };
+  const plan = { ...response!.item, warnings: response!.warnings ?? [] } as Plan;
+  serverKeys.set(plan, new Set(unknownFields(plan, planSchema).map(shapeKey)));
+  return plan;
+}
+
+/** Throws on anything left after the caller's `allowUnknown`.
+ *
+ * `allowUnknown` names fields to send that this SDK version doesn't
+ * declare — a field the API gained since it was released. Named one by one
+ * on purpose: switching the check off entirely would wave through a typo
+ * anywhere else in the plan, which is what it exists to catch. A name given
+ * there is allowed on every object of the plan, not just the one the caller
+ * had in mind.
+ */
+function refuseUnknown(fields: UnknownField[], allowUnknown?: string[]): void {
+  const allowed = new Set(allowUnknown ?? []);
+  const refused = fields.filter((field) => !allowed.has(field.key));
+  if (refused.length > 0) throw new UnknownFieldError(refused);
 }
 
 export type ArchivedFilter = "excluded" | "included" | "only";
@@ -53,7 +94,8 @@ export class PlansAPI {
    * full. The server assigns `id`. The plan is validated locally first
    * (`parsePlanCreate`: throws a `ZodError` listing every problem, before
    * anything is sent or billed), which also applies its defaults. */
-  async submit(plan: PlanCreateInput): Promise<Plan> {
+  async submit(plan: PlanCreateInput, opts: { allowUnknown?: string[] } = {}): Promise<Plan> {
+    refuseUnknown(unknownFields(plan), opts.allowUnknown);
     const body = parsePlanCreate(plan);
     const response = await this.transport.request<EnvelopedPlan>("POST", "/plans", { json: body });
     return planFromEnvelope(response);
@@ -74,7 +116,27 @@ export class PlansAPI {
    * added unique stops are billed.
    *
    * `force` unarchives the plan first if it's archived; ignored otherwise. */
-  async update(plan: Plan, opts: { force?: boolean } = {}): Promise<Plan> {
+  async update(
+    plan: Plan,
+    opts: { force?: boolean; allowUnknown?: string[] } = {},
+  ): Promise<Plan> {
+    const unknown = unknownFields(plan, planSchema);
+    const fromServer = serverKeys.get(plan);
+    if (fromServer) {
+      refuseUnknown(
+        unknown.filter((field) => !fromServer.has(shapeKey(field))),
+        opts.allowUnknown,
+      );
+    } else {
+      const allowed = new Set(opts.allowUnknown ?? []);
+      const likelyTypos = unknown.filter((f) => f.suggestion && !allowed.has(f.key));
+      if (likelyTypos.length > 0) {
+        const listed = likelyTypos
+          .map((f) => `${f.path} (did you mean ${f.suggestion}?)`)
+          .join(", ");
+        console.warn(`Possible typo(s) in the plan being sent: ${listed}`);
+      }
+    }
     const response = await this.transport.request<EnvelopedPlan>("PUT", `/plans/${plan.id}`, {
       json: stripReadOnly(plan),
       params: { force: String(opts.force ?? false) },

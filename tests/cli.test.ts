@@ -390,7 +390,7 @@ describe("plan files, wording and round trip", () => {
     expect(await cli("routing", "plans", "validate", file("bad.json", plan))).toBe(1);
     const issues = JSON.parse(stdout);
     expect(issues).toContainEqual({ field: "resources.0.vehicleProfile", error: "Field required" });
-    expect(issues).toContainEqual({ field: "bogusField", error: "Extra inputs are not permitted" });
+    expect(issues).toContainEqual({ field: "bogusField", error: "Unknown field" });
   });
 
   it("update keeps fields this SDK doesn't know", async () => {

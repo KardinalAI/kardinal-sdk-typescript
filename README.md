@@ -188,7 +188,36 @@ KardinalError
 ├── KardinalTimeoutError        solutions.wait()'s hard `timeoutMs` elapsed
 ├── KardinalOptimizationError   solutions.wait() has no solution to return: NO_SOLUTION,
 │                               PLAN_SUPERSEDED, OPTIMIZATION_STALLED (engine crashed)
-└── KardinalConnectionError     DNS/connection/read failure, no HTTP response at all
+├── KardinalConnectionError     DNS/connection/read failure, no HTTP response at all
+└── UnknownFieldError           a key no schema declares, thrown before sending
+                                (submit: any; update: one the server didn't send)
+```
+
+`UnknownFieldError` is the one thrown without a request being made. Most
+plan fields are optional, so a misspelled one used to be removed in silence
+by this SDK, then by the API: `operationDurationn` left the stop with no
+service time, `requiredSkills` spelled wrong let any resource serve the
+order, and the plan came back valid. `submit()` now lists every such key
+with its path and refuses to send:
+
+```
+Unknown field(s) in the plan:
+  plan.resources[0].maxWorkingDurationn       (did you mean maxWorkingDuration?)
+  plan.orders[0].stops[0].operationDurationn  (did you mean operationDuration?)
+```
+
+`update()` sorts them by where they came from. One the server sent is a
+field the API added after this SDK version: it is sent back untouched, since
+a full replacement would otherwise delete it. One you added is a typo, and
+throws. On a plan this SDK never read — rebuilt from JSON, or loaded from a
+file — there is nothing to sort by, so it only warns, and only for a key
+close to a real field.
+
+If the API gains a field before this SDK knows it, name it to send it
+anyway — everything else stays checked:
+
+```ts
+await k.routing.plans.update(plan, { allowUnknown: ["aFieldAddedByTheApi"] });
 ```
 
 All of them are importable from `@kardinal-ai/sdk` itself

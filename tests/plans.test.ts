@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "./setup.js";
 import { ZodError } from "zod";
 import { Kardinal, KardinalNotFoundError, KardinalConnectionError } from "../src/index.js";
-import { orderSchema } from "../src/routing/schemas.js";
+import { orderSchema, unknownFields } from "../src/routing/schemas.js";
 
 const BASE = "https://app.kardinal.ai/api/v2";
 const PLAN_ID = "4cbd0ab8-282c-4b30-b981-29e1ed8a2016";
@@ -308,8 +308,12 @@ describe("plans, more", () => {
     expect(sentBody.orders.map((o: { id: string }) => o.id)).toEqual(["o1", "o2"]);
   });
 
-  it("a hand-built order still rejects unknown fields", () => {
-    expect(() => orderSchema.parse({ id: "o1", stops: [], typo: true })).toThrow(ZodError);
+  it("a hand-built order keeps an unknown field for submit() to report", () => {
+    const order = orderSchema.parse({ id: "o1", stops: [], typo: true });
+    expect(order).toHaveProperty("typo");
+    expect(unknownFields({ resources: [], orders: [order] }).map((f) => f.path)).toEqual([
+      "plan.orders[0].typo",
+    ]);
   });
 
   it("a hand-built plan still rejects an unknown enum value", async () => {

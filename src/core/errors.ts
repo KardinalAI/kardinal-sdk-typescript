@@ -94,6 +94,41 @@ export class KardinalLimitError extends KardinalError {}
 export class KardinalValidationError extends KardinalError {}
 
 /** `NOT_FOUND` (404). Raised on every 404, including reads — no "get or null". */
+/** A key no schema declares was found in a plan being sent.
+ *
+ * Almost always a misspelled optional field. The API drops such a key
+ * without complaining, so the field it was meant to set stays unset and the
+ * plan is optimized without it: a stop with a misspelled `operationDuration`
+ * takes no time, an order with a misspelled `requiredSkills` can go on any
+ * resource. Thrown by `submit()` on any such key, and by `update()` on one
+ * the server didn't send, before the request leaves — nothing downstream
+ * will report it.
+ */
+export class UnknownFieldError extends KardinalError {
+  /** Every unknown key, with its path and, when the name is close to a
+   * real field, what it was probably meant to be. */
+  readonly fields: ReadonlyArray<{ path: string; suggestion?: string }>;
+
+  constructor(fields: ReadonlyArray<{ path: string; suggestion?: string }>) {
+    const listed = fields
+      .map((f) => `  ${f.path}${f.suggestion ? `  (did you mean ${f.suggestion}?)` : ""}`)
+      .join("\n");
+    super(`Unknown field(s) in the plan:\n${listed}`, {
+      code: "UNKNOWN_FIELD",
+      status: 0,
+      requestId: null,
+      retryable: false,
+    });
+    this.name = "UnknownFieldError";
+    this.fields = fields;
+  }
+
+  /** Just the paths, for a quick assertion or log line. */
+  get paths(): string[] {
+    return this.fields.map((f) => f.path);
+  }
+}
+
 export class KardinalNotFoundError extends KardinalError {}
 
 /**

@@ -51,12 +51,12 @@ const taggedTimeWindowSchema = z.object({
 const capacitiesSchema = z.record(z.string(), z.number());
 
 // --- Stops ------------------------------------------------------------------
-// The generated Order.stops type is `Omit<Stop, "type">[]` — openapi.yaml
-// writes `items: allOf: [$ref: Stop]`, and openapi-typescript strips the
-// discriminator when it resolves that pattern, which would silently make
-// `type` (required by the real API) look optional-or-absent. This mirrors
-// it correctly instead, the same fix the Python sibling SDK applies to the
-// analogous Stop1/Stop12/Stop13 codegen artifact there.
+// Runtime counterpart of the generated `Stop` union: the generated types
+// vanish at compile time, and a plan built from JSON or from untyped data
+// has to be checked somewhere. Until the spec dropped its redundant
+// `allOf` wrappers, this also had to repair the generated type, which came
+// out as `Omit<Stop, "type">[]` with the required discriminator stripped;
+// the generated type is now correct on its own and this only validates.
 
 const singleStopSchema = z.object({
   type: z.literal("single"),
@@ -69,13 +69,15 @@ const singleStopSchema = z.object({
   capacities: capacitiesSchema.optional(),
   authorizedTimeWindows: z.array(taggedTimeWindowSchema).optional(),
   preferredTimeWindows: z.array(taggedTimeWindowSchema).optional(),
-});
+}).passthrough();
 
-const alternativesStopSchema = z.object({
-  id: idSchema,
-  type: z.literal("alternatives"),
-  alternatives: z.array(singleStopSchema),
-});
+const alternativesStopSchema = z
+  .object({
+    id: idSchema,
+    type: z.literal("alternatives"),
+    alternatives: z.array(singleStopSchema),
+  })
+  .passthrough();
 
 const stopSchema = z.union([singleStopSchema, alternativesStopSchema]);
 
@@ -96,15 +98,16 @@ export const orderSchema = z
     successiveStops: z.boolean().optional(),
     maxStopSpan: durationSchema.optional(),
   })
-  .strict();
+  .passthrough();
 
 export type Order = z.infer<typeof orderSchema>;
 
 // --- Resource / VehicleProfile ---------------------------------------------
-// Every field of openapi.yaml's `Resource` is listed, so unknown ones are
-// stripped (as the Python SDK's generated `Resource` ignores them); the
-// nested objects of the rarer ones are not deeply validated (see module
-// docstring).
+// Every field of openapi.yaml's `Resource` is listed, and the schema is
+// strict, so an unknown one is reported rather than quietly removed: most
+// fields here are optional, so a misspelled one would otherwise vanish and
+// the plan be optimized without it. The nested objects of the rarer fields
+// are still not deeply validated (see module docstring).
 
 export type Resource = components["schemas"]["Resource"];
 const resourceSchema = z.object({
@@ -133,7 +136,7 @@ const resourceSchema = z.object({
   travelTimeCoefficient: z.number().optional(),
   emptyThresholdByCapacity: capacitiesSchema.optional(),
   avoidEarlyLoadings: z.array(z.custom<unknown>()).optional(),
-}) as unknown as z.ZodType<Resource>;
+}).passthrough() as unknown as z.ZodType<Resource>;
 
 // --- PlanCreate -----------------------------------------------------------
 
@@ -158,10 +161,113 @@ export const planCreateSchema = z
     avoidEarlyLoadingsByResourceTag: z.record(z.string(), z.array(z.custom<unknown>())).optional(),
     CO2EmissionCalculationByResourceTag: z.record(z.string(), z.custom<unknown>()).optional(),
   })
-  .strict();
+  .passthrough();
 
 export type PlanCreateInput = z.input<typeof planCreateSchema>;
 export type PlanCreate = z.infer<typeof planCreateSchema>;
+
+
+// --- Unknown fields ---------------------------------------------------------
+// Most plan fields are optional, so a misspelled one used to be removed in
+// silence — by this SDK, then by the API, which drops any key it doesn't
+// know. The field it was meant to set stayed unset and the plan came back
+// valid. The request schemas above are strict so Zod reports the key
+// instead; these turn its report into a path and, where the name is close
+// enough, a suggestion.
+
+/** Levenshtein distance, answered only up to `limit`. */
+function withinEdits(a: string, b: string, limit: number): boolean {
+  if (Math.abs(a.length - b.length) > limit) return false;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current.push(
+        a[i - 1] === b[j - 1]
+          ? previous[j - 1]
+          : 1 + Math.min(previous[j - 1], previous[j], current[j - 1]),
+      );
+    }
+    if (Math.min(...current) > limit) return false;
+    previous = current;
+  }
+  return previous[b.length] <= limit;
+}
+
+/** A declared field close enough to `key` to be what was meant. Two edits,
+ * but only one on a short name: two edits on a two-letter field is a
+ * different word, not a slip. */
+function suggestionFor(key: string, known: readonly string[]): string | undefined {
+  const near = known
+    .filter((field) => withinEdits(key, field, Math.min(key.length, field.length) >= 5 ? 2 : 1))
+    .sort((a, b) => Number(a.length !== key.length) - Number(b.length !== key.length));
+  return near[0];
+}
+
+/** Looks through the wrappers Zod puts around a schema (optional, default,
+ * nullable) to the object or array underneath. */
+function unwrap(node: any): any {
+  for (let i = 0; i < 10 && node; i++) {
+    if (node?._def?.innerType) node = node._def.innerType;
+    else if (node?._def?.schema) node = node._def.schema;
+    else return node;
+  }
+  return node;
+}
+
+function shapeOf(node: any): Record<string, any> | undefined {
+  const inner = unwrap(node);
+  const shape = inner?.shape ?? inner?._def?.shape?.();
+  return shape && typeof shape === "object" ? shape : undefined;
+}
+
+/** For a union, the branch whose discriminator matches the value — so a
+ * stop reports against `single` or `alternatives`, not both. */
+function branchFor(node: any, value: Record<string, unknown>): any {
+  const options = unwrap(node)?._def?.options;
+  if (!Array.isArray(options)) return node;
+  const matching = options.find((option: any) => {
+    const shape = shapeOf(option);
+    const tag = shape?.type?._def;
+    return tag?.value === undefined || tag.value === value.type;
+  });
+  return matching ?? options[0];
+}
+
+export type UnknownField = { path: string; key: string; suggestion?: string };
+
+/** Every key the request schemas don't declare, with its path — e.g.
+ * `plan.resources[0].maxWorkingDurationn` — and, when the name is close to a
+ * declared one, what it was probably meant to be. Empty on a clean plan.
+ *
+ * Walks the value against the schema rather than reading Zod's own report,
+ * so the schemas can keep unknown keys (`passthrough`) instead of rejecting
+ * them: `submit()` decides what to do with them, and `update()` needs the
+ * ones the server sent to survive and be sent back.
+ */
+export function unknownFields(
+  data: unknown,
+  schema: z.ZodTypeAny = planCreateSchema,
+  path = "plan",
+): UnknownField[] {
+  if (Array.isArray(data)) {
+    const element = unwrap(schema)?._def?.type ?? unwrap(schema)?.element;
+    return data.flatMap((item, index) => unknownFields(item, element, `${path}[${index}]`));
+  }
+  if (data === null || typeof data !== "object") return [];
+
+  const value = data as Record<string, unknown>;
+  const shape = shapeOf(branchFor(schema, value));
+  if (!shape) return []; // free-form map, or a field left unvalidated on purpose
+
+  const known = Object.keys(shape);
+  const found: UnknownField[] = [];
+  for (const key of Object.keys(value)) {
+    if (key in shape) found.push(...unknownFields(value[key], shape[key], `${path}.${key}`));
+    else found.push({ path: `${path}.${key}`, key, suggestion: suggestionFor(key, known) });
+  }
+  return found;
+}
 
 /** Parses and validates a `PlanCreate`, throwing a Zod error listing every
  * problem found — not just the first — if the input is malformed. */
@@ -183,7 +289,7 @@ export function parsePlanCreate(data: unknown): PlanCreate {
 // for `kardinal routing plans update`): same rules as `PlanCreate`, plus a
 // required `id`, and unknown fields kept rather than rejected — `update()`
 // replaces the whole plan, so dropping one would delete it on the server.
-const planSchema = planCreateSchema
+export const planSchema = planCreateSchema
   .extend({ id: z.string(), orders: z.array(orderSchema.passthrough()).optional() })
   .passthrough();
 

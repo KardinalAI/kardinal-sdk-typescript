@@ -752,7 +752,7 @@ export interface components {
              */
             maxInterStopDuration?: components["schemas"]["Duration"] | components["schemas"]["MaxInterStopDurationBounds"];
             /** @description Breaks to schedule into this resource's tour; see `Break` for the three available kinds. */
-            breaks?: Omit<components["schemas"]["Break"], "type">[];
+            breaks?: components["schemas"]["Break"][];
             /** @description Policies excluding specific operation durations from this resource's tour; see `OperationDurationPolicy`. */
             operationDurationPolicies?: components["schemas"]["OperationDurationPolicy"][];
             /**
@@ -903,7 +903,7 @@ export interface components {
              *
              *     > **Default.** Capped at 3,000 stops per plan across all orders combined — see [Limits and quotas](https://developers.kardinal.ai/reference/limits-and-quotas).
              */
-            stops: Omit<components["schemas"]["Stop"], "type">[];
+            stops: components["schemas"]["Stop"][];
             /**
              * @description The order's stops must be visited consecutively, with nothing from another order in between. Mutually exclusive with `maxStopSpan`.
              *
@@ -1956,7 +1956,7 @@ export interface components {
              */
             isValid?: boolean;
             /** @description Constraint violations found on this tour. */
-            violations?: Omit<components["schemas"]["TourViolation"], "type">[];
+            violations?: components["schemas"]["TourViolation"][];
             /** @description Ordered sequence of waypoints making up the tour, from the resource's departure to its arrival. */
             wayPoints?: (components["schemas"]["WayPointBegin"] | components["schemas"]["WayPointStop"] | components["schemas"]["WayPointBreak"] | components["schemas"]["WayPointEnd"])[];
             /** @description Vehicle profile actually used to compute this tour's travel times and distances. */
@@ -2315,7 +2315,7 @@ export interface components {
              */
             name: string;
             /** @description Lists of sub-constraints violations. */
-            violatedConstraints: Omit<components["schemas"]["TourViolation"], "type">[];
+            violatedConstraints: components["schemas"]["TourViolation"][];
         };
         /** @description Violation of a resource's MaxStopTagGroups constraint. */
         MaxStopTagGroupsViolation: {
@@ -2395,7 +2395,7 @@ export interface components {
             /** @description Time the resource departs. */
             departureTime?: components["schemas"]["DateTime"];
             /** @description Constraint violations found at this waypoint. */
-            violations?: Omit<components["schemas"]["WaypointViolation"], "type">[];
+            violations?: components["schemas"]["WaypointViolation"][];
             fromPrevious?: components["schemas"]["FromPrevious"];
         };
         /** @description A single stop visited on a tour. */
@@ -2429,7 +2429,7 @@ export interface components {
             /** @description Time the resource leaves the stop. */
             departureTime?: components["schemas"]["DateTime"];
             /** @description Constraint violations found at this waypoint. */
-            violations?: Omit<components["schemas"]["WaypointViolation"], "type">[];
+            violations?: components["schemas"]["WaypointViolation"][];
             fromPrevious?: components["schemas"]["FromPrevious"];
             /** @description This stop's operation label, carried over from the stop itself. */
             stopKind?: components["schemas"]["StopKind"];
@@ -2448,7 +2448,7 @@ export interface components {
             /** @description Time the break ends. */
             departureTime?: components["schemas"]["DateTime"];
             /** @description Constraint violations found at this waypoint. */
-            violations?: Omit<components["schemas"]["WaypointViolation"], "type">[];
+            violations?: components["schemas"]["WaypointViolation"][];
             fromPrevious?: components["schemas"]["FromPrevious"];
         };
         /** @description The end of a tour, where the resource finishes. */
@@ -2465,7 +2465,7 @@ export interface components {
             /** @description Time the resource arrives. */
             arrivalTime?: components["schemas"]["DateTime"];
             /** @description Constraint violations found at this waypoint. */
-            violations?: Omit<components["schemas"]["WaypointViolation"], "type">[];
+            violations?: components["schemas"]["WaypointViolation"][];
             fromPrevious?: components["schemas"]["FromPrevious"];
         };
         /** @description `additionalConstraints` scope. Two stop tags can never appear in the same tour, regardless of resource. */
