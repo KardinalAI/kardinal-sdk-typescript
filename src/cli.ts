@@ -92,6 +92,18 @@ function failValidation(issues: { field: string; error: string }[]): never {
 
 /** A Zod issue as `{field, error}`, worded like the Python CLI's (pydantic)
  * for a missing field and an unknown one, which it reports field by field. */
+/** An unknown key as a `{ field, error }` issue, the shape every other
+ * local validation problem is printed in. */
+function describeUnknown(field: {
+  path: string;
+  suggestion?: string;
+}): { field: string; error: string } {
+  return {
+    field: field.path.replace(/^plan\./, ""),
+    error: field.suggestion ? `Unknown field — did you mean ${field.suggestion}?` : "Unknown field",
+  };
+}
+
 function describeIssue(issue: z.ZodIssue): { field: string; error: string }[] {
   const field = (path: (string | number)[]) => path.join(".");
   if (issue.code === "unrecognized_keys") {
@@ -109,13 +121,7 @@ async function run(body: () => unknown | Promise<unknown>): Promise<void> {
   try {
     await body();
   } catch (e) {
-    if (e instanceof UnknownFieldError)
-      failValidation(
-        e.fields.map((f) => ({
-          field: f.path.replace(/^plan\./, ""),
-          error: f.suggestion ? `Unknown field — did you mean ${f.suggestion}?` : "Unknown field",
-        })),
-      );
+    if (e instanceof UnknownFieldError) failValidation(e.fields.map(describeUnknown));
     if (e instanceof KardinalError) fail(e);
     if (e instanceof z.ZodError) failValidation(e.issues.flatMap(describeIssue));
     if (e instanceof SyntaxError) failValidation([{ field: "", error: `Invalid JSON: ${e.message}` }]);
@@ -329,10 +335,7 @@ function buildProgram(): Command {
         // than one, and reporting only the first sends the caller round the
         // loop. The unknown-field check is the one submit() makes, without
         // which this would answer OK to a plan submit() goes on to refuse.
-        const unknown = unknownFields(data).map((f) => ({
-          field: f.path.replace(/^plan\./, ""),
-          error: f.suggestion ? `Unknown field — did you mean ${f.suggestion}?` : "Unknown field",
-        }));
+        const unknown = unknownFields(data).map(describeUnknown);
         try {
           parsePlanCreate(data);
         } catch (e) {

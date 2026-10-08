@@ -207,3 +207,40 @@ describe("onWarning", () => {
     consoleWarn.mockRestore();
   });
 });
+
+describe("the nested objects a key can hide in", () => {
+  it("keeps an allowed key inside a nested object instead of dropping it", async () => {
+    // Reported but then removed by the parse is the worst of both: the
+    // caller is told the key exists, allows it, and it still never ships.
+    const state = serving([]);
+    await client().routing.plans.submit(
+      { resources: [{ ...RESOURCE, workingTimeWindow: { ...TW, newApiKey: 1 } } as any] },
+      { allowUnknown: ["newApiKey"] },
+    );
+    expect(state.sent.resources[0].workingTimeWindow.newApiKey).toBe(1);
+  });
+
+  it("reports a typo inside the object form of a union field", async () => {
+    // `maxInterStopDuration` is a duration or a per-segment object. Left
+    // opaque, a typo inside the object form went unreported.
+    serving([]);
+    await expect(
+      client().routing.plans.submit({
+        resources: [{ ...RESOURCE, maxInterStopDuration: { maxx: "PT1H" } } as any],
+      }),
+    ).rejects.toMatchObject({ paths: ["plan.resources[0].maxInterStopDuration.maxx"] });
+  });
+
+  it("still accepts both legitimate forms of that field", async () => {
+    serving([]);
+    const plans = client().routing.plans;
+    await expect(
+      plans.submit({ resources: [{ ...RESOURCE, maxInterStopDuration: "PT1H" } as any] }),
+    ).resolves.toBeDefined();
+    await expect(
+      plans.submit({
+        resources: [{ ...RESOURCE, maxInterStopDuration: { interStop: "PT1H" } } as any],
+      }),
+    ).resolves.toBeDefined();
+  });
+});

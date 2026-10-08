@@ -20,6 +20,7 @@
  */
 
 import { z } from "zod";
+import { UnknownFieldError } from "../core/errors.js";
 import type { components } from "./generated-types.js";
 
 // --- Scalars (openapi.yaml `RegexIdValidation`, `Duration`) ----------------
@@ -32,21 +33,45 @@ const durationSchema = matching(/^P(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(\d+H)?(\d+M)?(
 
 // --- Position / TimeWindow / TaggedTimeWindow -----------------------------
 
-const positionSchema = z.object({
-  lon: z.number().min(-180).max(180),
-  lat: z.number().min(-90).max(90),
-});
+// `passthrough` throughout, like every other request schema: a key these
+// kept out would be reported by `unknownFields` and then dropped here, so
+// `allowUnknown` would have removed in silence exactly what it was asked to
+// send.
+const positionSchema = z
+  .object({
+    lon: z.number().min(-180).max(180),
+    lat: z.number().min(-90).max(90),
+  })
+  .passthrough();
 
-const timeWindowSchema = z.object({
-  begin: z.string(),
-  end: z.string(),
-});
+const timeWindowSchema = z
+  .object({
+    begin: z.string(),
+    end: z.string(),
+  })
+  .passthrough();
 
-const taggedTimeWindowSchema = z.object({
-  begin: z.string(),
-  end: z.string(),
-  resourceTags: z.array(idSchema).optional(),
-});
+const taggedTimeWindowSchema = z
+  .object({
+    begin: z.string(),
+    end: z.string(),
+    resourceTags: z.array(idSchema).optional(),
+  })
+  .passthrough();
+
+/** `maxInterStopDistanceInKm` / `maxInterStopDuration`: a scalar applied to
+ * every travel, or a bound per segment. Spelled out rather than left as an
+ * opaque value, so a typo inside the object form is reported like any
+ * other — each key is independent, and an absent one means no constraint on
+ * that segment rather than a constraint of zero. */
+const segmentBoundsSchema = <T extends z.ZodTypeAny>(bound: T) =>
+  z
+    .object({
+      firstTravel: bound.optional(),
+      interStop: bound.optional(),
+      lastTravel: bound.optional(),
+    })
+    .passthrough();
 
 const capacitiesSchema = z.record(z.string(), z.number());
 
@@ -103,11 +128,12 @@ export const orderSchema = z
 export type Order = z.infer<typeof orderSchema>;
 
 // --- Resource / VehicleProfile ---------------------------------------------
-// Every field of openapi.yaml's `Resource` is listed, and the schema is
-// strict, so an unknown one is reported rather than quietly removed: most
-// fields here are optional, so a misspelled one would otherwise vanish and
-// the plan be optimized without it. The nested objects of the rarer fields
-// are still not deeply validated (see module docstring).
+// Every field of openapi.yaml's `Resource` is listed, and the schema keeps
+// what it doesn't know rather than quietly removing it, so `unknownFields`
+// can report it: most fields here are optional, so a misspelled one would
+// otherwise vanish and the plan be optimized without it. The nested objects
+// of the rarer fields are still not deeply validated (see module
+// docstring), and a typo inside one of those is not reported.
 
 export type Resource = components["schemas"]["Resource"];
 const resourceSchema = z.object({
@@ -129,8 +155,8 @@ const resourceSchema = z.object({
   workingTimeWindow: timeWindowSchema,
   maxWorkingDuration: durationSchema.optional(),
   maxDistanceInKm: z.number().optional(),
-  maxInterStopDistanceInKm: z.custom<unknown>().optional(),
-  maxInterStopDuration: z.custom<unknown>().optional(),
+  maxInterStopDistanceInKm: z.union([z.number(), segmentBoundsSchema(z.number())]).optional(),
+  maxInterStopDuration: z.union([durationSchema, segmentBoundsSchema(durationSchema)]).optional(),
   breaks: z.array(z.custom<unknown>()).optional(),
   operationDurationPolicies: z.array(z.custom<unknown>()).optional(),
   travelTimeCoefficient: z.number().optional(),
@@ -171,9 +197,10 @@ export type PlanCreate = z.infer<typeof planCreateSchema>;
 // Most plan fields are optional, so a misspelled one used to be removed in
 // silence — by this SDK, then by the API, which drops any key it doesn't
 // know. The field it was meant to set stayed unset and the plan came back
-// valid. The request schemas above are strict so Zod reports the key
-// instead; these turn its report into a path and, where the name is close
-// enough, a suggestion.
+// valid. The request schemas above keep such a key instead of dropping it,
+// and the walker below finds it by comparing the value against the schema,
+// turning it into a path and, where the name is close enough, a
+// suggestion.
 
 /** Levenshtein distance, answered only up to `limit`. */
 function withinEdits(a: string, b: string, limit: number): boolean {
@@ -233,12 +260,14 @@ function shapeOf(node: any): Record<string, any> | undefined {
 function branchFor(node: any, value: Record<string, unknown>): any {
   const options = unwrap(node)?._def?.options;
   if (!Array.isArray(options)) return node;
-  const matching = options.find((option: any) => {
-    const shape = shapeOf(option);
-    const tag = shape?.type?._def;
-    return tag?.value === undefined || tag.value === value.type;
-  });
-  return matching ?? options[0];
+  const shaped = options.filter((option: any) => shapeOf(option) !== undefined);
+  // Only a branch with a shape can describe an object. Without this, a union
+  // that lists a literal first (`"atFirstPosition" | Position`) resolved to
+  // the literal, found no shape, and reported nothing.
+  const discriminated = shaped.find(
+    (option: any) => shapeOf(option)?.type?._def?.value === value.type,
+  );
+  return discriminated ?? shaped[0] ?? options[0];
 }
 
 export type UnknownField = { path: string; key: string; suggestion?: string };
@@ -276,10 +305,20 @@ export function unknownFields(
   return found;
 }
 
-/** Parses and validates a `PlanCreate`, throwing a Zod error listing every
- * problem found — not just the first — if the input is malformed. */
-export function parsePlanCreate(data: unknown): PlanCreate {
-  return planCreateSchema.parse(data);
+/** Parses and validates a `PlanCreate`, reporting every problem found, not
+ * just the first: a `ZodError` for a malformed value, and an
+ * `UnknownFieldError` for a key no schema declares — the misspelled field
+ * that would otherwise be dropped here and then by the API.
+ *
+ * `allowUnknown` names keys to let through, for a field the API gained
+ * after this SDK version.
+ */
+export function parsePlanCreate(data: unknown, allowUnknown: string[] = []): PlanCreate {
+  const parsed = planCreateSchema.parse(data);
+  const allowed = new Set(allowUnknown);
+  const unknown = unknownFields(data).filter((field) => !allowed.has(field.key));
+  if (unknown.length > 0) throw new UnknownFieldError(unknown);
+  return parsed;
 }
 
 // --- Plan (response / update) -----------------------------------------------

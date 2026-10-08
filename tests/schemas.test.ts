@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { UnknownFieldError } from "../src/core/errors.js";
 import { parsePlanCreate, orderSchema, unknownFields } from "../src/routing/schemas.js";
 
 const stop = { type: "single" as const, id: "s1", position: { lat: 48.85, lon: 2.35 } };
@@ -105,10 +106,13 @@ describe("parsePlanCreate (rules shared with the Python SDK)", () => {
     );
   });
 
-  it("keeps an unknown resource field so submit() can report it", () => {
-    // Dropping it here is what made a misspelled optional field
+  it("refuses an unknown resource field, and keeps one the caller allows", () => {
+    // Dropping it silently is what made a misspelled optional field
     // undetectable: the plan was sent without it and came back valid.
-    const plan = parsePlanCreate({ resources: [{ ...resource, bogus: 1 }] });
+    expect(() => parsePlanCreate({ resources: [{ ...resource, bogus: 1 }] })).toThrow(
+      UnknownFieldError,
+    );
+    const plan = parsePlanCreate({ resources: [{ ...resource, bogus: 1 }] }, ["bogus"]);
     expect(plan.resources[0]).toHaveProperty("bogus");
     expect(plan.resources[0].priority).toBe(0);
   });

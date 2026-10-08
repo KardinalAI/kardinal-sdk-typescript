@@ -118,8 +118,9 @@ export class PlansAPI {
    * (`parsePlanCreate`: throws a `ZodError` listing every problem, before
    * anything is sent or billed), which also applies its defaults. */
   async submit(plan: PlanCreateInput, opts: { allowUnknown?: string[] } = {}): Promise<Plan> {
-    refuseUnknown(unknownFields(plan), opts.allowUnknown);
-    const body = parsePlanCreate(plan);
+    // parsePlanCreate reports both kinds of problem, so there is nothing to
+    // check separately here.
+    const body = parsePlanCreate(plan, opts.allowUnknown ?? []);
     const response = await this.transport.request<EnvelopedPlan>("POST", "/plans", { json: body });
     return this.planFromEnvelope(response);
   }
