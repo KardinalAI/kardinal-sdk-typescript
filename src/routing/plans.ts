@@ -114,9 +114,18 @@ export class PlansAPI {
   }
 
   /** `POST /plans`. Creates a new plan and starts optimization — billed in
-   * full. The server assigns `id`. The plan is validated locally first
-   * (`parsePlanCreate`: throws a `ZodError` listing every problem, before
-   * anything is sent or billed), which also applies its defaults. */
+   * full. The server assigns `id`.
+   *
+   * The plan is validated locally first, before anything is sent or billed,
+   * and its defaults applied: a `ZodError` for a malformed value, listing
+   * every problem rather than the first, and an `UnknownFieldError` for a
+   * key no schema declares — the misspelled field the API would otherwise
+   * drop in silence. A malformed value is reported first when a plan has
+   * both.
+   *
+   * `allowUnknown` names keys to send anyway, for a field the API gained
+   * after this SDK version. One by one rather than switching the check off,
+   * and a name given there is allowed anywhere in the plan. */
   async submit(plan: PlanCreateInput, opts: { allowUnknown?: string[] } = {}): Promise<Plan> {
     // parsePlanCreate reports both kinds of problem, so there is nothing to
     // check separately here.

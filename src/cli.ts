@@ -90,8 +90,6 @@ function failValidation(issues: { field: string; error: string }[]): never {
   throw new ExitRequest(Exit.BUSINESS_ERROR);
 }
 
-/** A Zod issue as `{field, error}`, worded like the Python CLI's (pydantic)
- * for a missing field and an unknown one, which it reports field by field. */
 /** An unknown key as a `{ field, error }` issue, the shape every other
  * local validation problem is printed in. */
 function describeUnknown(field: {
@@ -104,11 +102,10 @@ function describeUnknown(field: {
   };
 }
 
+/** A Zod issue as `{field, error}`, worded like the Python CLI's (pydantic)
+ * for a missing field and an unknown one, which it reports field by field. */
 function describeIssue(issue: z.ZodIssue): { field: string; error: string }[] {
   const field = (path: (string | number)[]) => path.join(".");
-  if (issue.code === "unrecognized_keys") {
-    return issue.keys.map((key) => ({ field: field([...issue.path, key]), error: "Extra inputs are not permitted" }));
-  }
   if (issue.code === "invalid_type" && issue.received === "undefined") {
     return [{ field: field(issue.path), error: "Field required" }];
   }
@@ -331,18 +328,25 @@ function buildProgram(): Command {
     .action((file) =>
       run(() => {
         const data = readJsonFile(file);
-        // Both kinds of problem at once: a malformed plan usually has more
-        // than one, and reporting only the first sends the caller round the
-        // loop. The unknown-field check is the one submit() makes, without
-        // which this would answer OK to a plan submit() goes on to refuse.
-        const unknown = unknownFields(data).map(describeUnknown);
         try {
+          // The same check submit() makes, so this can't answer OK to a plan
+          // submit() goes on to refuse.
           parsePlanCreate(data);
         } catch (e) {
-          if (e instanceof z.ZodError) failValidation([...e.issues.flatMap(describeIssue), ...unknown]);
+          // A malformed plan usually has more than one problem, and a
+          // misspelled key is often one of them. parsePlanCreate reports a
+          // malformed value first, so pair it with the unknown keys here
+          // rather than sending the caller round the loop twice. An
+          // UnknownFieldError means there was nothing else to say, and
+          // `run()` prints it in the same shape.
+          if (e instanceof z.ZodError) {
+            failValidation([
+              ...e.issues.flatMap(describeIssue),
+              ...unknownFields(data).map(describeUnknown),
+            ]);
+          }
           throw e;
         }
-        if (unknown.length > 0) failValidation(unknown);
         console.log("OK");
       })
     );

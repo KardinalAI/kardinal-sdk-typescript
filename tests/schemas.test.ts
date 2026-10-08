@@ -145,3 +145,59 @@ describe("parsePlanCreate (rules shared with the Python SDK)", () => {
     expect(future[0].suggestion).toBeUndefined();
   });
 });
+
+describe("the shapes a key can hide in", () => {
+  const tw = { begin: "2026-10-09T08:00:00Z", end: "2026-10-09T18:00:00Z" };
+  const res = { id: "r1", vehicleProfile: { type: "car" as const }, workingTimeWindow: tw };
+
+  it("keeps an unknown key in every nested object, not just the time window", () => {
+    // Each of these dropped silently until this MR, so a key `allowUnknown`
+    // was asked to send never left.
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["position", { ...res, departure: { lat: 48.85, lon: 2.35, newKey: 1 } }],
+      ["timeWindow", { ...res, workingTimeWindow: { ...tw, newKey: 1 } }],
+    ];
+    for (const [label, resource] of cases) {
+      const found = unknownFields({ resources: [resource] });
+      expect(found.map((f) => f.key), label).toEqual(["newKey"]);
+      const parsed: any = parsePlanCreate({ resources: [resource] }, ["newKey"]);
+      expect(JSON.stringify(parsed), label).toContain("newKey");
+    }
+  });
+
+  it("keeps an unknown key in a stop's tagged time window", () => {
+    const stopWithWindow = {
+      ...stop,
+      authorizedTimeWindows: [{ ...tw, resourceTags: ["x"], newKey: 1 }],
+    };
+    const plan = { resources: [res], orders: [{ id: "o1", stops: [stopWithWindow] }] };
+    expect(unknownFields(plan).map((f) => f.path)).toEqual([
+      "plan.orders[0].stops[0].authorizedTimeWindows[0].newKey",
+    ]);
+    expect(JSON.stringify(parsePlanCreate(plan, ["newKey"]))).toContain("newKey");
+  });
+
+  it("accepts every documented key of the per-segment bound, and only those", () => {
+    // Pinning all three: dropping one from the schema would turn a valid
+    // plan into a refused one, which is worse than missing a typo.
+    for (const key of ["firstTravel", "interStop", "lastTravel"]) {
+      expect(unknownFields({ resources: [{ ...res, maxInterStopDuration: { [key]: "PT1H" } }] }), key).toEqual([]);
+      expect(unknownFields({ resources: [{ ...res, maxInterStopDistanceInKm: { [key]: 10 } }] }), key).toEqual([]);
+    }
+    expect(unknownFields({ resources: [{ ...res, maxInterStopDuration: { lastTravl: "PT1H" } }] })).toHaveLength(1);
+  });
+
+  it("resolves a discriminated stop to its own branch", () => {
+    // Without the discriminator half of the branch picker, `alternatives`
+    // is reported as unknown on every alternatives stop.
+    const plan = {
+      resources: [res],
+      orders: [{ id: "o1", stops: [{ id: "alt1", type: "alternatives", alternatives: [stop] }] }],
+    };
+    expect(unknownFields(plan)).toEqual([]);
+  });
+
+  it("reports a malformed value before an unknown key when a plan has both", () => {
+    expect(() => parsePlanCreate({ resources: [{ ...res, id: 1, bogus: 2 }] })).toThrow(z.ZodError);
+  });
+});

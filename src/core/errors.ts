@@ -189,7 +189,6 @@ export class UnknownFieldError extends KardinalError {
   }
 }
 
-
 const VALIDATION_CODES = new Set([
   "INVALID_INPUT",
   "ID_NOT_UNIQUE",
