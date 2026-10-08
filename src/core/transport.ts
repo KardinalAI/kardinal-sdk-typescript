@@ -164,7 +164,7 @@ export class Transport {
 
       if (attempt < this.maxRetries && isRetryable(method, { status: response.status, networkError: false })) {
         attempt += 1;
-        await sleep(attempt);
+        await sleep(attempt, response.headers.get("Retry-After"));
         continue;
       }
       throw this.errorFor(response, text, method);
