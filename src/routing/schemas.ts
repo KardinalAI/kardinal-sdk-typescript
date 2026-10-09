@@ -270,7 +270,37 @@ function branchFor(node: any, value: Record<string, unknown>): any {
   return discriminated ?? shaped[0] ?? options[0];
 }
 
-export type UnknownField = { path: string; key: string; suggestion?: string };
+/** Fields openapi.yaml marks `readOnly`: the server sets them, and
+ * `update()` must not echo them back on PUT. Listed here rather than in
+ * `plans.ts` so the same names both strip the body and explain the key,
+ * instead of drifting apart. */
+export const PLAN_READ_ONLY_FIELDS = [
+  "id",
+  "agencyId",
+  "version",
+  "running",
+  "status",
+  "state",
+  "nbResources",
+  "nbOrders",
+  "createdAt",
+  "createdBy",
+  "updatedAt",
+  "updatedBy",
+  "archivedAt",
+] as const;
+
+const READ_ONLY = new Set<string>(PLAN_READ_ONLY_FIELDS);
+
+export type UnknownField = {
+  path: string;
+  key: string;
+  suggestion?: string;
+  /** A field the server assigns, sent back by a caller who resubmitted a
+   * plan they had read. Not a typo, and no suggestion would help. */
+  serverAssigned?: boolean;
+};
+
 
 /** Every key the request schemas don't declare, with its path — e.g.
  * `plan.resources[0].maxWorkingDurationn` — and, when the name is close to a
@@ -300,7 +330,17 @@ export function unknownFields(
   const found: UnknownField[] = [];
   for (const key of Object.keys(value)) {
     if (key in shape) found.push(...unknownFields(value[key], shape[key], `${path}.${key}`));
-    else found.push({ path: `${path}.${key}`, key, suggestion: suggestionFor(key, known) });
+    else {
+      // Only at the top level: these names are the plan's. An unknown
+      // `version` on an order is not something the server assigns.
+      const serverAssigned = READ_ONLY.has(key) && path.indexOf(".") === -1;
+      found.push({
+        path: `${path}.${key}`,
+        key,
+        suggestion: serverAssigned ? undefined : suggestionFor(key, known),
+        ...(serverAssigned ? { serverAssigned } : {}),
+      });
+    }
   }
   return found;
 }

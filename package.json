@@ -46,15 +46,23 @@
     "check:spec": "node scripts/check-spec-matches-mintlify.mjs"
   },
   "dependencies": {
-    "commander": "^12.1.0",
     "zod": "^3.23.8"
   },
+  "peerDependencies": {
+    "commander": "^12.1.0"
+  },
+  "peerDependenciesMeta": {
+    "commander": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@types/node": "^22.9.0",
+    "commander": "^12.1.0",
+    "js-yaml": "4.3.2",
+    "msw": "^2.6.4",
     "openapi-typescript": "7.13.0",
     "typescript": "^5.6.3",
-    "vitest": "^5.0.2",
-    "@types/node": "^22.9.0",
-    "msw": "^2.6.4",
-    "js-yaml": "4.3.2"
+    "vitest": "^5.0.2"
   }
 }

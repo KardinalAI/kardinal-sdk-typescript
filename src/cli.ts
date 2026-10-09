@@ -18,7 +18,7 @@ import { Command, CommanderError, InvalidArgumentError, Option } from "commander
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Kardinal } from "./index.js";
-import { KardinalError, UnknownFieldError } from "./core/errors.js";
+import { KardinalError, UnknownFieldError, hintFor } from "./core/errors.js";
 import { userAgent } from "./core/transport.js";
 import { parsePlan, parsePlanCreate, unknownFields } from "./routing/schemas.js";
 import { SDK_VERSION } from "./core/version.js";
@@ -30,7 +30,7 @@ const Exit = { OK: 0, BUSINESS_ERROR: 1, USAGE_ERROR: 2 } as const;
  * variables), with `cli;` in the User-Agent so the backend can tell CLI
  * usage apart from library usage. */
 function cliClient(): Kardinal {
-  const client = new Kardinal();
+  const client = new Kardinal({ onWarning: warn });
   client._transport.userAgent = userAgent({ cli: true });
   return client;
 }
@@ -95,11 +95,28 @@ function failValidation(issues: { field: string; error: string }[]): never {
 function describeUnknown(field: {
   path: string;
   suggestion?: string;
+  serverAssigned?: boolean;
 }): { field: string; error: string } {
+  const hint = hintFor(field);
   return {
     field: field.path.replace(/^plan\./, ""),
-    error: field.suggestion ? `Unknown field — did you mean ${field.suggestion}?` : "Unknown field",
+    error: hint ? `Unknown field — ${hint}` : "Unknown field",
   };
+}
+
+/** `--allow-unknown NAME`, repeatable: send a key this SDK version doesn't
+ * know, for a field the API gained since. Everything else stays checked. */
+const allowUnknownOption = () =>
+  new Option(
+    "--allow-unknown <name>",
+    "Send an unknown field instead of refusing it. Repeatable."
+  ).argParser((value: string, previous: string[] = []) => previous.concat(value));
+
+/** Reports a typo on a plan the SDK couldn't check exactly, in the CLI's own
+ * format on stderr rather than as a bare `console.warn`, so it reads like
+ * every other message the CLI prints and never lands in `--json` output. */
+function warn(message: string): void {
+  process.stderr.write(`warning: ${message}\n`);
 }
 
 /** A Zod issue as `{field, error}`, worded like the Python CLI's (pydantic)
@@ -227,11 +244,14 @@ function buildProgram(): Command {
     .command("submit")
     .description("Submit a new plan and start optimization. Billed in full.")
     .argument("<file>", "JSON file with the plan.", existingFile)
+    .addOption(allowUnknownOption())
     .option("--json", "Force JSON output.")
     .action((file, opts) =>
       run(async () => {
-        const plan = parsePlanCreate(readJsonFile(file));
-        emit(withoutNulls(await cliClient().routing.plans.submit(plan)), !!opts.json);
+        const allowUnknown: string[] = opts.allowUnknown ?? [];
+        const plan = parsePlanCreate(readJsonFile(file), allowUnknown);
+        const submitted = await cliClient().routing.plans.submit(plan, { allowUnknown });
+        emit(withoutNulls(submitted), !!opts.json);
       })
     );
 
@@ -248,11 +268,27 @@ function buildProgram(): Command {
     .description("Update a plan. Re-optimizes if needed; only new unique stops are billed.")
     .argument("<file>", "JSON file with the full plan, including its id.", existingFile)
     .addOption(forceOption())
+    .addOption(allowUnknownOption())
     .option("--json", "Force JSON output.")
     .action((file, opts) =>
       run(async () => {
         const plan = parsePlan(readJsonFile(file));
-        const updated = await cliClient().routing.plans.update(plan, { force: !!opts.force });
+        const client = cliClient();
+        // A plan from a file carries no provenance, so `update()` could only
+        // warn about a typo and would send it anyway. Reading the stored plan
+        // first lends it the provenance that turns the warning into a refusal.
+        // Deliberately best-effort: this read only sharpens a check the
+        // command already makes, and `update()` reports a real failure (a
+        // missing plan, a bad key) on its own a moment later.
+        try {
+          await client.routing.plans.get(plan.id);
+        } catch {
+          // fall through to the weaker check
+        }
+        const updated = await client.routing.plans.update(plan, {
+          force: !!opts.force,
+          allowUnknown: opts.allowUnknown ?? [],
+        });
         emit(withoutNulls(updated), !!opts.json);
       })
     );
@@ -325,13 +361,15 @@ function buildProgram(): Command {
     .command("validate")
     .description("Validate a plan locally. No API call, no credits consumed.")
     .argument("<file>", "JSON file with the plan.", existingFile)
-    .action((file) =>
+    .addOption(allowUnknownOption())
+    .action((file, opts) =>
       run(() => {
         const data = readJsonFile(file);
+        const allowUnknown: string[] = opts.allowUnknown ?? [];
         try {
           // The same check submit() makes, so this can't answer OK to a plan
           // submit() goes on to refuse.
-          parsePlanCreate(data);
+          parsePlanCreate(data, allowUnknown);
         } catch (e) {
           // A malformed plan usually has more than one problem, and a
           // misspelled key is often one of them. parsePlanCreate reports a
@@ -340,9 +378,12 @@ function buildProgram(): Command {
           // UnknownFieldError means there was nothing else to say, and
           // `run()` prints it in the same shape.
           if (e instanceof z.ZodError) {
+            const allowed = new Set(allowUnknown);
             failValidation([
               ...e.issues.flatMap(describeIssue),
-              ...unknownFields(data).map(describeUnknown),
+              ...unknownFields(data)
+                .filter((f) => !allowed.has(f.key))
+                .map(describeUnknown),
             ]);
           }
           throw e;

@@ -394,15 +394,118 @@ describe("plan files, wording and round trip", () => {
   });
 
   it("update keeps fields this SDK doesn't know", async () => {
+    // The stored plan carries the field, so the provenance the command reads
+    // vouches for it. Without the GET below this passed for the wrong reason:
+    // the lookup failed, and the weaker check lets anything through.
+    const plan = { id: PLAN_ID, resources: [], futurePlanField: { a: 1 } };
     let sent: any;
     server.use(
+      http.get(PLAN_URL, () => HttpResponse.json({ item: plan })),
       http.put(PLAN_URL, async ({ request }) => {
         sent = await request.json();
         return HttpResponse.json({ item: { id: PLAN_ID, resources: [] } });
       })
     );
-    const plan = { id: PLAN_ID, resources: [], futurePlanField: { a: 1 } };
     expect(await cli("routing", "plans", "update", file("plan.json", plan), "--json")).toBe(0);
     expect(sent.futurePlanField).toEqual({ a: 1 });
+  });
+});
+
+describe("unknown fields on the command line", () => {
+  const RESOURCE = {
+    id: "r1",
+    vehicleProfile: { type: "car" },
+    workingTimeWindow: { begin: "2026-10-08T08:00:00Z", end: "2026-10-08T18:00:00Z" },
+  };
+
+  /** Serves `stored` on GET, records what a PUT or POST sent. */
+  function serving(stored: unknown) {
+    const state: { sent?: any } = {};
+    const record = async ({ request }: { request: Request }) => {
+      state.sent = await request.json();
+      return HttpResponse.json({ item: { id: PLAN_ID, resources: [] } });
+    };
+    server.use(
+      http.get(PLAN_URL, () => HttpResponse.json({ item: stored })),
+      http.put(PLAN_URL, record),
+      http.post(`${BASE}/plans`, record)
+    );
+    return state;
+  }
+
+  it("update refuses a typo the stored plan gives no cover for", async () => {
+    // The point of reading the stored plan first: from a file alone there is
+    // nothing to tell a typo from a field the API added, so update() could
+    // only warn — and send it.
+    serving({ id: PLAN_ID, resources: [RESOURCE] });
+    const edited = { id: PLAN_ID, resources: [{ ...RESOURCE, maxWorkingDurationn: "PT8H" }] };
+    expect(await cli("routing", "plans", "update", file("plan.json", edited), "--json")).toBe(1);
+    expect(JSON.parse(stdout)).toContainEqual({
+      field: "resources[0].maxWorkingDurationn",
+      error: "Unknown field — did you mean maxWorkingDuration?",
+    });
+  });
+
+  it("--allow-unknown sends the named key and still refuses the rest", async () => {
+    const state = serving({ id: PLAN_ID, resources: [RESOURCE] });
+    const plan = { id: PLAN_ID, resources: [{ ...RESOURCE, aNewApiField: "x" }] };
+    const path = file("plan.json", plan);
+    expect(
+      await cli("routing", "plans", "update", path, "--allow-unknown", "aNewApiField", "--json")
+    ).toBe(0);
+    expect(state.sent.resources[0].aNewApiField).toBe("x");
+
+    const withTypo = {
+      id: PLAN_ID,
+      resources: [{ ...RESOURCE, aNewApiField: "x", maxWorkingDurationn: "PT8H" }],
+    };
+    stdout = "";
+    expect(
+      await cli(
+        "routing", "plans", "update", file("two.json", withTypo),
+        "--allow-unknown", "aNewApiField", "--json"
+      )
+    ).toBe(1);
+    expect(JSON.parse(stdout)).toHaveLength(1);
+  });
+
+  it("--allow-unknown is repeatable, on submit and on validate", async () => {
+    const state = serving({ id: PLAN_ID, resources: [] });
+    const plan = { resources: [{ ...RESOURCE, fieldOne: 1, fieldTwo: 2 }], orders: [] };
+    const path = file("plan.json", plan);
+    const flags = ["--allow-unknown", "fieldOne", "--allow-unknown", "fieldTwo"];
+
+    expect(await cli("routing", "plans", "validate", path, ...flags)).toBe(0);
+    expect(await cli("routing", "plans", "submit", path, ...flags, "--json")).toBe(0);
+    expect(state.sent.resources[0]).toMatchObject({ fieldOne: 1, fieldTwo: 2 });
+  });
+
+  it("explains a server-assigned key instead of guessing a typo", async () => {
+    // Re-submitting a plan read back from the API is the common mistake.
+    // "did you mean..." would be unhelpful advice here.
+    const plan = { id: PLAN_ID, version: 3, resources: [RESOURCE], orders: [] };
+    expect(await cli("routing", "plans", "validate", file("plan.json", plan))).toBe(1);
+    const issues = JSON.parse(stdout);
+    for (const field of ["id", "version"]) {
+      expect(issues).toContainEqual({
+        field,
+        error: "Unknown field — not a field you set: the server assigns it",
+      });
+    }
+  });
+
+  it("prints a warning it cannot check exactly in the CLI's own format", async () => {
+    // A plan the SDK never read: nothing to sort by, so update() warns rather
+    // than refusing. It must read like the CLI's other output, on stderr, and
+    // never contaminate --json on stdout.
+    server.use(
+      http.get(PLAN_URL, NOT_FOUND),
+      http.put(PLAN_URL, () => HttpResponse.json({ item: { id: PLAN_ID, resources: [] } }))
+    );
+    const edited = { id: PLAN_ID, resources: [{ ...RESOURCE, maxWorkingDurationn: "PT8H" }] };
+    expect(await cli("routing", "plans", "update", file("plan.json", edited), "--json")).toBe(0);
+    expect(stderr).toContain("warning: ");
+    expect(stderr).toContain("maxWorkingDuration");
+    expect(() => JSON.parse(stdout)).not.toThrow();
   });
 });

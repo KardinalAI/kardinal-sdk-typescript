@@ -154,6 +154,26 @@ export class KardinalOptimizationError extends KardinalError {
  */
 export class KardinalConnectionError extends KardinalError {}
 
+/** The part of `UnknownField` a message needs. Structural, so this module
+ * stays free of imports from `routing/`, which imports it. */
+type UnknownFieldLike = { path: string; suggestion?: string; serverAssigned?: boolean };
+
+/** What to tell the caller about one unknown key, or `undefined` when there
+ * is nothing useful to say. One definition, so the error, the CLI and any
+ * caller running the check themselves word it the same way.
+ */
+export function hintFor(field: UnknownFieldLike): string | undefined {
+  // A plan read back and resubmitted carries these; they are not typos, and
+  // the nearest declared name would be misleading advice.
+  if (field.serverAssigned) return "not a field you set: the server assigns it";
+  return field.suggestion ? `did you mean ${field.suggestion}?` : undefined;
+}
+
+function describe(field: UnknownFieldLike): string {
+  const hint = hintFor(field);
+  return hint ? `  (${hint})` : "";
+}
+
 /** A key no schema declares was found in a plan being sent.
  *
  * Almost always a misspelled optional field. The API drops such a key
@@ -167,12 +187,10 @@ export class KardinalConnectionError extends KardinalError {}
 export class UnknownFieldError extends KardinalError {
   /** Every unknown key, with its path and, when the name is close to a
    * real field, what it was probably meant to be. */
-  readonly fields: ReadonlyArray<{ path: string; suggestion?: string }>;
+  readonly fields: ReadonlyArray<UnknownFieldLike>;
 
-  constructor(fields: ReadonlyArray<{ path: string; suggestion?: string }>) {
-    const listed = fields
-      .map((f) => `  ${f.path}${f.suggestion ? `  (did you mean ${f.suggestion}?)` : ""}`)
-      .join("\n");
+  constructor(fields: ReadonlyArray<UnknownFieldLike>) {
+    const listed = fields.map((f) => `  ${f.path}${describe(f)}`).join("\n");
     super(`Unknown field(s) in the plan:\n${listed}`, {
       code: "UNKNOWN_FIELD",
       status: 0,

@@ -5,30 +5,15 @@
 import type { Transport } from "../core/transport.js";
 import { iterAll } from "../core/pagination.js";
 import type { Page } from "../core/pagination.js";
-import { parsePlanCreate, planSchema, unknownFields } from "./schemas.js";
+import { PLAN_READ_ONLY_FIELDS, parsePlanCreate, planSchema, unknownFields } from "./schemas.js";
 import { UnknownFieldError } from "../core/errors.js";
 import type { PlanCreateInput, Plan, Warning, UnknownField } from "./schemas.js";
 import type { PlanLight, PlanReference, PlanState } from "./types.js";
 
-// Fields openapi.yaml marks `readOnly`, which update() must not echo back
-// on PUT. `id` only travels in the URL: the server rejects a body `id` that
-// doesn't match it, and POST already rejects any body `id`.
-const PLAN_READ_ONLY_FIELDS = [
-  "id",
-  "agencyId",
-  "version",
-  "running",
-  "status",
-  "state",
-  "nbResources",
-  "nbOrders",
-  "createdAt",
-  "createdBy",
-  "updatedAt",
-  "updatedBy",
-  "archivedAt",
-] as const;
-
+// `id` only travels in the URL: the server rejects a body `id` that doesn't
+// match it, and on POST an `id` in the body is ignored and replaced by a
+// generated one. The list itself lives in `schemas.ts`, where the same names
+// also explain the key to a caller who resubmitted a plan they had read.
 function stripReadOnly(plan: Plan): Record<string, unknown> {
   const body: Record<string, unknown> = { ...plan };
   for (const field of PLAN_READ_ONLY_FIELDS) delete body[field];
@@ -148,7 +133,11 @@ export class PlansAPI {
    * identical PUT is a free no-op, returning the same version. Only newly
    * added unique stops are billed.
    *
-   * `force` unarchives the plan first if it's archived; ignored otherwise. */
+   * `force` unarchives the plan first if it's archived; ignored otherwise.
+   *
+   * `allowUnknown` names keys to let through, for a field the API gained
+   * after this SDK version. A name listed there is allowed anywhere in the
+   * plan, so prefer a distinctive one over a common word like `priority`. */
   async update(
     plan: Plan,
     opts: { force?: boolean; allowUnknown?: string[] } = {},

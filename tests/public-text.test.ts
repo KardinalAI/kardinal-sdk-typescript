@@ -70,3 +70,18 @@ it("no internal detail in any tracked file", () => {
     .filter((path) => statSync(path, { throwIfNoEntry: false })?.isFile());
   expect(offenders(tracked, FORBIDDEN_ANYWHERE)).toEqual([]);
 });
+
+// The README has told users to `npm install @kardinal-ai/sdk commander`
+// since the CLI existed, and the JSDoc calls it a peer dependency — while
+// package.json listed it under `dependencies`, so it was installed either
+// way and the instruction was noise. The intent (the Python SDK's optional
+// `[cli]` extra) is now what the manifest says; this keeps the two from
+// drifting apart again.
+it("commander is optional, as the README and the CLI's JSDoc promise", () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
+  expect(pkg.dependencies).not.toHaveProperty("commander");
+  expect(pkg.peerDependencies).toHaveProperty("commander");
+  expect(pkg.peerDependenciesMeta.commander.optional).toBe(true);
+  // Still installed for the tests, which drive the CLI directly.
+  expect(pkg.devDependencies).toHaveProperty("commander");
+});

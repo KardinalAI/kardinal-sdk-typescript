@@ -102,6 +102,12 @@ whole request, reading the response included. `maxRetries` is how many times a r
 `start()` or `stop()` is retried after a network error, a `429` or a `5xx`;
 `submit()` is never retried (see "Good to know" below).
 
+`onWarning` receives what `update()` can only warn about — a key that looks
+like a typo on a plan this client never read, and so cannot check exactly.
+It defaults to `console.warn`; pass your own logger to route it into a real
+log pipeline, or a no-op to stay quiet. A library shouldn't write where the
+host application can neither silence nor collect it.
+
 There's nothing to close: requests go through Node's built-in `fetch`,
 with no connection pool of the SDK's own.
 
@@ -224,7 +230,13 @@ await k.routing.plans.update(plan, { allowUnknown: ["aFieldAddedByTheApi"] });
 
 `update()`'s exact check needs the plan to have been read by the same
 client, in this process — it remembers, per plan id, which unknown keys the
-server sent. A plan read elsewhere falls back to the warning.
+server sent. A plan read elsewhere falls back to the warning, which goes to
+`onWarning` (see Configuration above).
+
+The CLI works the same way: `plans update` reads the stored plan first to
+borrow its provenance, so a typo in an edited file is refused rather than
+sent. And `--allow-unknown NAME`, repeatable, is the command-line form of
+`allowUnknown` on `plans submit`, `plans update` and `plans validate`.
 
 A name listed there is allowed **anywhere in the plan**, not only on the
 object you had in mind — so prefer a distinctive name over a common one
@@ -265,9 +277,11 @@ try {
 ```
 
 `KardinalRateLimitError` (429) signals a temporary overload, not a quota: it
-comes with an empty body and no `Retry-After` header. Reads, `update()`,
-`delete()`, `start()`, `stop()` and `wait()` retry it automatically;
-`submit()` doesn't, so retry it yourself after a pause.
+comes with an empty body and, today, no `Retry-After` header — the SDK
+honours one if the API ever sends it, and otherwise backs off on a jittered
+schedule of its own. Reads, `update()`, `delete()`, `start()`, `stop()` and
+`wait()` retry it automatically; `submit()` doesn't, so retry it yourself
+after a pause.
 
 `.retryable` is computed by the SDK and means "retrying is safe and may
 succeed": true for a `429`, and for a `5xx` or a connection error, except
@@ -303,6 +317,7 @@ kardinal version
 kardinal routing plans submit <file> | get <id> | update <file> | delete <id>
 kardinal routing plans list | start <id> | stop <id> | status <id>
 kardinal routing plans validate <file> local only, no API call, no credits
+  --allow-unknown <name>               repeatable, on submit | update | validate
 kardinal routing solutions get <id> | objectives <id> | wait <id>
 
 kardinal routing demo                  submits the example plan, waits for it
@@ -315,8 +330,9 @@ terminal, since it's the one output shape a caller is most likely to parse
 programmatically. Exit codes: `0` success, `1` business error, `2` usage
 error. The CLI reads the same `KARDINAL_API_KEY` / `KARDINAL_BASE_URL` as
 `new Kardinal()` (see Configuration above), with no `--api-key` flag, so a
-key never lands in shell history or the process list. `solutions wait`
-takes `--timeout <seconds>`.
+key never lands in shell history or the process list. `solutions wait` takes
+`--timeout <seconds>`, and prints how the optimization ended as
+`finalState`, like the API's other fields.
 
 `commander` (the CLI's argument parser) is a peer dependency, not a hard
 one: `npm install @kardinal-ai/sdk` alone doesn't pull it in, and the
