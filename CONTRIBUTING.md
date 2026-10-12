@@ -132,9 +132,16 @@ each stack:
 
 - Local validation: this SDK doesn't validate the inside of the rarer
   nested objects (`cost`, `breaks`, `objectives`, constraints, ...), and
-  keeps unknown fields there; the Python SDK's generated models do both.
-  Zod, here, rejects strings for numbers and booleans (`"1"`, `"true"`),
-  which pydantic accepts.
+  doesn't report a misspelled key there; the Python SDK's generated models
+  do both. Zod, here, rejects strings for numbers and booleans (`"1"`,
+  `"true"`), which pydantic accepts.
+- `update()`'s record of the keys the API sent back: kept on the client,
+  keyed on the plan id, so it survives a copy or a JSON round trip (for the
+  last 64 plans read). The Python SDK keeps it on the plan object, which a
+  `model_dump()`/`model_validate()` round trip loses.
+- `update()`'s warning on a likely typo goes to `onWarning` (default
+  `console.warn`); the Python SDK raises an `UnknownFieldWarning` through
+  `warnings`.
 - Timeout: `timeoutMs` covers the whole request, response included;
   `httpx` applies the Python SDK's `timeout` to each phase separately.
 - Validation messages (`plans validate`): the wording of pattern, missing

@@ -59,7 +59,7 @@ it("no internal detail in the README or the sources", () => {
 // there either. The spec and the types generated from it are excluded
 // (they're the public API reference), as is this file, which lists the
 // patterns.
-const FORBIDDEN_ANYWHERE = [/plt\./i, /gitlab\.kardinal/i, /public-docs/i, /guidelines/i, /aropy/i, /sk-[a-z0-9]/i];
+const FORBIDDEN_ANYWHERE = [/plt\./i, /gitlab\.kardinal/i, /public-docs/i, /guidelines/i, /aropy/i, /ebirah/i, /sk-[a-z0-9]/i];
 const EXCLUDED = new Set(["spec/openapi.yaml", "src/routing/generated-types.ts", "tests/public-text.test.ts"]);
 
 it("no internal detail in any tracked file", () => {
