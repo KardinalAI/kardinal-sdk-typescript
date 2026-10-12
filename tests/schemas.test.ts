@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { UnknownFieldError } from "../src/core/errors.js";
@@ -195,6 +197,43 @@ describe("the shapes a key can hide in", () => {
       orders: [{ id: "o1", stops: [{ id: "alt1", type: "alternatives", alternatives: [stop] }] }],
     };
     expect(unknownFields(plan)).toEqual([]);
+  });
+
+  it("checks a vehicle profile against the variant its type selects", () => {
+    // `vehicleProfile` is a oneOf of VehicleProfile* schemas, discriminated
+    // by `type`. Read from the spec, so a field it gains fails here, not on
+    // a user's plan: every option of every variant used to be reported as
+    // unknown (`withTraffic` on a car, `grossWeight` on a truck).
+    const schemas = (yaml.load(readFileSync("spec/openapi.yaml", "utf8")) as any).components.schemas;
+    const sample = (property: any): unknown => {
+      const ref = property.allOf?.[0]?.$ref ?? property.items?.allOf?.[0]?.$ref;
+      const target = ref ? schemas[ref.split("/").pop()] : property;
+      if (property.type === "array" || target.type === "array") return [target.enum?.[0] ?? target.example?.[0]];
+      if (target.enum) return target.enum[0];
+      return target.type === "boolean" ? true : 1;
+    };
+    const variants = Object.keys(schemas).filter((name) => name.startsWith("VehicleProfile"));
+    expect(variants).toHaveLength(7);
+    for (const name of variants) {
+      const { properties } = schemas[name];
+      const profile = Object.fromEntries(
+        Object.entries(properties).map(([key, property]) => [key, key === "type" ? (property as any).enum[0] : sample(property)]),
+      );
+      const plan = { resources: [{ ...res, vehicleProfile: profile }] };
+      expect(unknownFields(plan), name).toEqual([]);
+      expect(() => parsePlanCreate(plan), name).not.toThrow();
+    }
+  });
+
+  it("still reports a typo inside a vehicle profile, and an option of another variant", () => {
+    const found = unknownFields({ resources: [{ ...res, vehicleProfile: { type: "truck", grossWieght: 40000 } }] });
+    expect(found).toEqual([
+      { path: "plan.resources[0].vehicleProfile.grossWieght", key: "grossWieght", suggestion: "grossWeight" },
+    ]);
+    // `grossWeight` is a truck option: a car doesn't have it.
+    expect(
+      unknownFields({ resources: [{ ...res, vehicleProfile: { type: "car", grossWeight: 40000 } }] }).map((f) => f.path),
+    ).toEqual(["plan.resources[0].vehicleProfile.grossWeight"]);
   });
 
   it("reports a malformed value before an unknown key when a plan has both", () => {

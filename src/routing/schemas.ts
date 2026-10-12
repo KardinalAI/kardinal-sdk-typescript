@@ -10,9 +10,10 @@
  *
  * Scope: `orders`/`stops`, `resources` and the top-level scalar fields are
  * validated below with the same rules as the Python SDK (id pattern, ISO
- * 8601 duration pattern, integers, required fields). The nested objects of
- * the rarer fields (`cost`, `breaks`, vehicle profile options on a
- * resource; `additionalConstraints`, `globalConstraints`, `objectives` and
+ * 8601 duration pattern, integers, required fields), and so is each
+ * resource's vehicle profile, against the variant its `type` selects. The
+ * nested objects of the rarer fields (`cost`, `breaks` on a resource;
+ * `additionalConstraints`, `globalConstraints`, `objectives` and
  * the other `*ByResourceTag`/`*ByStopTag` maps on a plan) are typed for
  * compile-time safety via the generated schema types, but not deeply
  * validated at runtime — a malformed value there fails server-side (400),
@@ -136,6 +137,76 @@ export type Order = z.infer<typeof orderSchema>;
 // docstring), and a typo inside one of those is not reported.
 
 export type Resource = components["schemas"]["Resource"];
+
+// openapi.yaml's `vehicleProfile` is a `oneOf` discriminated by `type`, each
+// `VehicleProfile*` variant with its own options. Each variant is spelled
+// out so `unknownFields` checks a profile against the one its `type`
+// selects: an object declaring only `type` reported every option
+// (`withTraffic`, `grossWeight`, ...) as unknown.
+const roadOptions = {
+  avoidFerry: z.boolean().optional(),
+  avoidSeasonalClosure: z.boolean().optional(),
+  avoidDirtRoad: z.boolean().optional(),
+  excludedCountries: z.array(z.string()).optional(),
+};
+const motorOptions = {
+  ...roadOptions,
+  avoidControlledAccessHighway: z.boolean().optional(),
+  avoidCarShuttleTrain: z.boolean().optional(),
+  avoidTunnel: z.boolean().optional(),
+  speedCap: z.number().optional(),
+};
+const carOptions = {
+  ...motorOptions,
+  withTraffic: z.boolean().optional(),
+  avoidTollRoad: z.boolean().optional(),
+  avoidUTurns: z.boolean().optional(),
+};
+const vehicleProfileSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("fly"), kmph: z.number().optional() }).passthrough(),
+  z.object({ type: z.literal("pedestrian"), ...roadOptions }).passthrough(),
+  z.object({ type: z.literal("bicycle"), ...roadOptions, avoidTunnel: z.boolean().optional() }).passthrough(),
+  z
+    .object({
+      type: z.literal("scooter"),
+      ...roadOptions,
+      avoidCarShuttleTrain: z.boolean().optional(),
+      avoidTunnel: z.boolean().optional(),
+      speedCap: z.number().optional(),
+    })
+    .passthrough(),
+  z.object({ type: z.literal("motorbike"), ...motorOptions }).passthrough(),
+  z.object({ type: z.literal("car"), ...carOptions }).passthrough(),
+  z
+    .object({
+      type: z.literal("truck"),
+      ...carOptions,
+      grossWeight: z.number().optional(),
+      shippedHazardousGoods: z
+        .array(
+          z.enum([
+            "explosive",
+            "gas",
+            "flammable",
+            "combustible",
+            "organic",
+            "poison",
+            "radioactive",
+            "corrosive",
+            "poisonousInhalation",
+            "harmfulToWater",
+            "other",
+          ]),
+        )
+        .optional(),
+      height: z.number().optional(),
+      width: z.number().optional(),
+      length: z.number().optional(),
+      tunnelCategory: z.enum(["B", "C", "D", "E"]).optional(),
+    })
+    .passthrough(),
+]);
+
 const resourceSchema = z.object({
   id: idSchema,
   properties: z.record(z.string(), z.string()).optional(),
@@ -146,9 +217,7 @@ const resourceSchema = z.object({
   skills: z.array(idSchema).optional(),
   preferredStopTags: z.array(idSchema).optional(),
   tags: z.array(idSchema).optional(),
-  vehicleProfile: z
-    .object({ type: z.enum(["fly", "pedestrian", "bicycle", "scooter", "motorbike", "car", "truck"]) })
-    .passthrough(),
+  vehicleProfile: vehicleProfileSchema,
   capacities: capacitiesSchema.optional(),
   departure: positionSchema.optional(),
   arrival: z.union([positionSchema, z.literal("atFirstPosition")]).optional(),
