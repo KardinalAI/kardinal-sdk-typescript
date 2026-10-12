@@ -415,7 +415,7 @@ export interface components {
              * @example PT1H
              */
             maxOptimizationDuration?: components["schemas"]["Duration"];
-            /** @description Time zone this plan's resources and stops are scheduled in. */
+            /** @description Time zone this plan's resources and stops are scheduled in. Local datetimes in the plan are read in it, and the API writes plan and solution datetimes back in its offset; see [Dates and time zones](https://developers.kardinal.ai/reference/data-model#dates-and-time-zones). */
             tz?: components["schemas"]["TimeZone"];
             /** @description The plan's creation datetime. */
             readonly createdAt?: components["schemas"]["DateTime"];
@@ -1078,7 +1078,13 @@ export interface components {
          */
         Duration: string;
         /**
-         * @description A full calendar date time, expressed in the ISO8601 **date** format: YYYY-MM-DDThh:mm:ssZ.
+         * @description A full calendar date and time, in ISO 8601 format, for example `2019-11-15T12:34:56Z`.
+         *
+         *     A client can send the time in UTC with a `Z` suffix, or with an explicit UTC offset such as `+01:00`. Milliseconds in a `Z` datetime are accepted and dropped. When the object carries a `tz` value (see `TimeZone`), a local datetime with a space between date and time, such as `2019-11-15 12:34`, is also accepted. The API returns read-only datetimes such as `createdAt` in `Z` form. Other datetimes are written back in the offset of `tz` when it is set. Without `tz`, the stored plan keeps the form you sent, and the solution uses `Z`.
+         *
+         *     See [Dates and time zones](https://developers.kardinal.ai/reference/data-model#dates-and-time-zones).
+         *
+         *     > **Modelling pitfall.** A local datetime with no `Z` and no offset is rejected with HTTP 400, whether it uses a `T` (`2019-11-15T12:34:00`) or a space, unless a `tz` value is set and the separator is a space.
          * @example 2019-11-15T12:34:56Z
          */
         DateTime: string;
@@ -1087,7 +1093,13 @@ export interface components {
          *
          *     A datetime can always be given in ISO 8601 with an explicit offset or `Z`, for example these three values for the same instant: `2025-05-22T05:43:00Z`, `2025-05-22T06:43:00+01:00`, `2025-05-22T07:43:00+02:00`. Pairing a local datetime with a `tz` value is a more human-readable alternative input: `2025-05-22 07:43` with `tz: "Europe/Paris"` denotes that same instant, and seconds are optional.
          *
+         *     With `tz`, a local datetime must use a space between date and time. The `T` form without `Z` and without an offset (`2025-05-22T07:43:00`) is rejected. Without `tz`, any local datetime is rejected with HTTP 400, not read as UTC. A `Z` or an offset in a datetime always wins over `tz`. Milliseconds in a `Z` datetime are accepted and dropped. The offset follows the date: for example, `Europe/Paris` gives `+02:00` in summer and `+01:00` in winter.
+         *
+         *     When `tz` is set, the API writes the datetimes of the stored plan and of the solution back in the offset of that zone, even if they were sent as `Z`. Read-only fields such as `createdAt` are always in `Z`. Set `tz` in every plan, even when every datetime carries an offset, so that responses are consistent.
+         *
          *     Where a JSON input object accepts a `tz` property, every local datetime found elsewhere in that same object is converted to ISO 8601 using it before further processing.
+         *
+         *     See [Dates and time zones](https://developers.kardinal.ai/reference/data-model#dates-and-time-zones).
          *
          *     > **Modelling pitfall.** A `properties` sub-object (free-form client data, see the `Properties` schema) is never scanned for local datetimes, regardless of `tz`.
          * @example Europe/Paris
@@ -1511,6 +1523,8 @@ export interface components {
          * @description Cost floor and coefficient for one cost base. A cost cannot be empty.
          *
          *     > **Modelling pitfall.** An overcost cannot be set if there is no cost, and `overcostFloor` must be greater than `costFloor`.
+         *
+         *     > **Modelling pitfall.** A field that is not listed here, such as `using`, raises no error: it is silently ignored. `using` belongs on `Cost`, not on a cost base.
          */
         CostFloorsAndCoeffs: {
             /**
@@ -1528,7 +1542,7 @@ export interface components {
              * @example 0.2
              */
             costCoeff?: number;
-            /** @description Value of the base beyond which the steeper `overcostCoeff` rate applies instead of `costCoeff`, in the base's own unit. */
+            /** @description Value of the base beyond which `overcostCoeff` applies instead of `costCoeff`, in the base's own unit. The overcost rate is usually higher, and a value of 0 caps the cost. */
             overcostFloor?: number;
             /**
              * @description Cost per unit of the base exceeding `overcostFloor`, in currency unit per base unit.
@@ -1554,7 +1568,7 @@ export interface components {
              */
             using?: number;
             /**
-             * @description Additional cost floors and coefficients applied once per visited stop, by stop tag.
+             * @description Additional cost floors and coefficients on the stops that carry a given tag, by stop tag. The base is the number of visited stops carrying that tag, and floors apply once to the tour total.
              * @example {
              *       "warehouse": {
              *         "constantCost": 5

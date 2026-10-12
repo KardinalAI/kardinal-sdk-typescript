@@ -11,7 +11,8 @@ npm install @kardinal-ai/sdk commander       # + the `kardinal` command
 The package is published as `@kardinal-ai/sdk`, and the command is
 `kardinal`. Node.js 22 or later.
 
-API documentation: https://developers.kardinal.ai
+Documentation: https://developers.kardinal.ai/sdks/overview (SDK guides and reference)
+and https://developers.kardinal.ai (the API itself).
 
 ## Quickstart
 

@@ -4,7 +4,7 @@
   "description": "Kardinal TypeScript SDK: route optimization plans and solutions.",
   "license": "MIT",
   "author": "Kardinal",
-  "homepage": "https://developers.kardinal.ai",
+  "homepage": "https://developers.kardinal.ai/sdks/overview",
   "bugs": {
     "url": "https://github.com/KardinalAI/kardinal-sdk-typescript/issues"
   },

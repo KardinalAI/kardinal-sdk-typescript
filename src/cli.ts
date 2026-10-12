@@ -229,7 +229,7 @@ function buildProgram(): Command {
           "const solution = await k.routing.solutions.wait(plan.id);",
           "```",
           "",
-          "Documentation: https://www.npmjs.com/package/@kardinal-ai/sdk (or run `kardinal --help`).",
+          "Documentation: https://developers.kardinal.ai/sdks/quickstart (or run `kardinal --help`).",
           "",
         ].join("\n")
       );
