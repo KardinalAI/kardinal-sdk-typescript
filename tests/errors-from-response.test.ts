@@ -97,6 +97,11 @@ describe("fromResponse", () => {
     expect(err).toBeInstanceOf(KardinalLimitError);
   });
 
+  it("keeps the exact text under another code in KardinalLimitError", () => {
+    const err = fromResponse({ status: 403, requestId: null, errors: error("INVALID_VALUE", "the token is invalid") });
+    expect(err).toBeInstanceOf(KardinalLimitError);
+  });
+
   it("keeps a future 403 code in KardinalLimitError", () => {
     const errors = [
       { code: "INVALID_VALUE", message: "bad", properties: { path: "resources" } },

@@ -237,10 +237,9 @@ const VALIDATION_CODES = new Set([
 // The two 403 messages that are not limits. Each is an exact match on the
 // `properties.details` of the NOT_ALLOWED error, copied from the backend; if
 // the backend rewords one, the 403 falls back to KardinalLimitError.
-// Source: coretech/go-jwt, client/base.go (token no longer valid).
+// Revoked or regenerated key.
 const REVOKED_TOKEN_DETAILS = "the token is invalid";
-// Source: coretech/phoebe, manager/plan_manager.go (validateAndUpdatePlan
-// and UpdateRunning).
+// Archived plan updated, stopped or restarted without `force`.
 const ARCHIVED_PLAN_DETAILS = "Cannot update an archived plan, except with the 'force' query param";
 const AUTH_CODES = new Set(["NOT_AUTHENTICATED"]);
 
@@ -296,11 +295,10 @@ export function fromResponse(opts: {
   let Family: ErrorClass;
   if (status === 403) {
     const details = primary?.properties?.details;
-    if (details === REVOKED_TOKEN_DETAILS) Family = KardinalAuthError;
-    else if (details === ARCHIVED_PLAN_DETAILS) Family = KardinalValidationError;
+    if (code === "NOT_ALLOWED" && details === REVOKED_TOKEN_DETAILS) Family = KardinalAuthError;
+    else if (code === "NOT_ALLOWED" && details === ARCHIVED_PLAN_DETAILS) Family = KardinalValidationError;
     else Family = KardinalLimitError;
-  }
-  else if (AUTH_CODES.has(code)) Family = KardinalAuthError;
+  } else if (AUTH_CODES.has(code)) Family = KardinalAuthError;
   else if (VALIDATION_CODES.has(code)) Family = KardinalValidationError;
   else if (code === "NOT_FOUND") Family = KardinalNotFoundError;
   else if (code === "INTERNAL_SERVER_ERROR") Family = KardinalServerError;
