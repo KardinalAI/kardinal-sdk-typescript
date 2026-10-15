@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   KardinalAuthError,
   KardinalConnectionError,
+  KardinalForbiddenError,
   KardinalLimitError,
   KardinalNotFoundError,
   KardinalRateLimitError,
@@ -21,9 +22,18 @@ describe("fromResponse", () => {
     expect(err.code).toBe("NOT_AUTHENTICATED");
   });
 
-  it("maps NOT_ALLOWED to KardinalLimitError, not KardinalAuthError", () => {
-    // For a builder account a 403 is an agency limit by default (see
-    // NOT_ALLOWED in openapi.yaml); only the two messages below it are not.
+  it("maps NOT_ALLOWED with no clue of a limit to KardinalForbiddenError", () => {
+    // A 403 that carries no clue of a limit, and isn't one of the two exact
+    // messages tested below, is never presented as a limit.
+    const err = fromResponse({ status: 403, requestId: null, errors: error("NOT_ALLOWED") });
+    expect(err).toBeInstanceOf(KardinalForbiddenError);
+    expect(err).not.toBeInstanceOf(KardinalLimitError);
+    expect(err).not.toBeInstanceOf(KardinalAuthError);
+    expect(err.code).toBe("NOT_ALLOWED");
+    expect(err.retryable).toBe(false);
+  });
+
+  it("maps NOT_ALLOWED with Insufficient credits to KardinalLimitError, not KardinalAuthError", () => {
     const err = fromResponse({
       status: 403,
       requestId: null,
@@ -88,21 +98,59 @@ describe("fromResponse", () => {
     expect(err.code).toBe("NOT_ALLOWED");
   });
 
+  const notAllowed = (details: string, extra: Record<string, unknown> = {}) => ({
+    code: "NOT_ALLOWED",
+    message: "x",
+    properties: { details, ...extra },
+  });
+  const QUOTA_SUMMARY = "The resulting plan violates the quotas configuration of the agency";
+
   it.each([
-    "The maximum number of optimizations per day (1500) has been reached for agency a1",
-    "the token is invalid, really",
+    // Exhausted credits: the `remaining` balance is enough, whatever the text.
+    ["credits", [notAllowed("Insufficient credits", { remaining: "17" })]],
+    ["credits, reworded", [notAllowed("Reworded", { remaining: "0" })]],
+    ["credits, text only", [notAllowed("Insufficient credits")]],
+    // Optimization quota: its own message, and the summary that always follows it.
+    [
+      "quota",
+      [
+        notAllowed("The maximum number of optimizations per day (1500) has been reached for agency a1"),
+        notAllowed(QUOTA_SUMMARY),
+      ],
+    ],
+    // Either clue alone is enough, so one reworded message doesn't hide the limit.
+    ["quota message only", [notAllowed("The maximum number of optimizations per month (50000) has been reached for agency a1")]],
+    ["quota summary only", [notAllowed("Reworded quota message"), notAllowed(QUOTA_SUMMARY)]],
+    ["zero quota", [notAllowed("The agency conf does not allow any optimization call")]],
+  ])("maps the clues of a limit (%s) to KardinalLimitError", (_label, errors) => {
+    const err = fromResponse({ status: 403, requestId: null, errors });
+    expect(err).toBeInstanceOf(KardinalLimitError);
+  });
+
+  it.each([
+    "the token is invalid, really", // exact match only, never "contains"
     "Cannot update an archived plan",
-  ])("keeps %j in KardinalLimitError: only an exact match changes the family", (details) => {
+    "The JWT token scope is invalid",
+    "Monthly credit quota exhausted", // sounds like a limit, but carries no clue of one
+  ])("maps %j to KardinalForbiddenError and keeps its details", (details) => {
     const err = fromResponse({ status: 403, requestId: null, errors: error("NOT_ALLOWED", details) });
-    expect(err).toBeInstanceOf(KardinalLimitError);
+    expect(err).toBeInstanceOf(KardinalForbiddenError);
+    expect(err.details).toBe(details);
   });
 
-  it("keeps the exact text under another code in KardinalLimitError", () => {
-    const err = fromResponse({ status: 403, requestId: null, errors: error("INVALID_VALUE", "the token is invalid") });
-    expect(err).toBeInstanceOf(KardinalLimitError);
+  it("does not treat the exact text under another code as a revoked key", () => {
+    const err = fromResponse({ status: 403, requestId: null, errors: error("SOME_FUTURE_CODE", "the token is invalid") });
+    expect(err).toBeInstanceOf(KardinalForbiddenError);
+    expect(err).not.toBeInstanceOf(KardinalAuthError);
   });
 
-  it("keeps a future 403 code in KardinalLimitError", () => {
+  it("maps a future 403 code with no clue of a limit to KardinalForbiddenError, and keeps the code", () => {
+    const err = fromResponse({ status: 403, requestId: null, errors: error("SOME_FUTURE_CODE") });
+    expect(err).toBeInstanceOf(KardinalForbiddenError);
+    expect(err.code).toBe("SOME_FUTURE_CODE");
+  });
+
+  it("keeps a future 403 code with a clue of a limit in KardinalLimitError", () => {
     const errors = [
       { code: "INVALID_VALUE", message: "bad", properties: { path: "resources" } },
       { code: "QUOTA_EXCEEDED", message: "quota" },
@@ -170,7 +218,7 @@ describe("fromResponse families and flags", () => {
 
   it.each([
     [401, KardinalAuthError],
-    [403, KardinalLimitError],
+    [403, KardinalForbiddenError], // no clue of a limit in the response
     [404, KardinalNotFoundError],
     [429, KardinalRateLimitError],
     [500, KardinalServerError],

@@ -189,8 +189,9 @@ its delivery).
 KardinalError
 ├── KardinalAuthError           NOT_AUTHENTICATED (401): missing, invalid or expired key;
 │                               also a 403 "the token is invalid": revoked or regenerated key
-├── KardinalLimitError          a 403 (NOT_ALLOWED): plan-size limit, optimization quota,
-│                               or insufficient credits; the default for any other 403
+├── KardinalLimitError          a 403 (NOT_ALLOWED) recognised as a limit: plan size,
+│                               optimization quota, or insufficient credits
+├── KardinalForbiddenError      any other 403: read `.details`
 ├── KardinalValidationError     the 7 codes under 400, with the full error list; also a 403
 │                               for an archived plan updated, stopped or restarted without `force`
 ├── KardinalNotFoundError       NOT_FOUND: raised on every 404, including reads
@@ -258,14 +259,16 @@ Every error carries `.code`, `.status`, `.requestId`, `.retryable`,
 the response; `.details` is the `properties.details` of the error `.code`
 came from, the only way to tell apart errors that share a code.
 
-`KardinalLimitError` is what a 403 becomes by default, because for a builder
-account a 403 usually means a limit was hit. Two 403s are not limits and are
-recognised by the exact text of their `.details`: `the token is invalid` (a
-revoked or regenerated key) raises `KardinalAuthError`, and
+The API answers every refusal with a 403 `NOT_ALLOWED`, so the SDK sorts a
+403 by what the response carries. `KardinalLimitError` is what a 403 becomes
+when a limit was hit, and `.details` says which one. Two 403s are not limits
+and are recognised by the exact text of their `.details`: `the token is
+invalid` (a revoked or regenerated key) raises `KardinalAuthError`, and
 `Cannot update an archived plan, except with the 'force' query param` raises
 `KardinalValidationError`: add `force: true` to the request. The second one
 has no field path in `.errors`. Any other 403, including a rejected scope or
-claim, stays a `KardinalLimitError`. For a limit, `.details` says which one.
+claim, raises `KardinalForbiddenError`: the SDK couldn't tell what it is, so
+it doesn't call it a limit, and `.details` holds the API's own explanation.
 For a plan-size limit (too many resources, orders or
 stops, or more than 4 stops in an order without `successiveStops`),
 `.errors` also holds one `INVALID_VALUE` entry per exceeded limit, whose

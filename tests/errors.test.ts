@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   KardinalAuthError,
   KardinalConnectionError,
+  KardinalForbiddenError,
   KardinalLimitError,
   KardinalNotFoundError,
   KardinalRateLimitError,
@@ -13,6 +14,7 @@ import {
 const LEAF_CLASSES = [
   KardinalAuthError,
   KardinalLimitError,
+  KardinalForbiddenError,
   KardinalNotFoundError,
   KardinalRateLimitError,
   KardinalServerError,

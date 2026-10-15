@@ -11,6 +11,7 @@ const PUBLIC = [
   "KardinalError",
   "KardinalAuthError",
   "KardinalLimitError",
+  "KardinalForbiddenError",
   "KardinalValidationError",
   "KardinalNotFoundError",
   "KardinalRateLimitError",
