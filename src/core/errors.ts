@@ -24,7 +24,7 @@
  *
  * A 403 is a limit by default (`KardinalLimitError`). Two 403s that are not
  * limits are recognised by the exact text of their `details`: a revoked or
- * regenerated key (`KardinalAuthError`) and an archived plan updated without
+ * regenerated key (`KardinalAuthError`) and an archived plan updated, stopped or restarted without
  * `force` (`KardinalValidationError`). Any other 403 (an unknown message, a
  * rejected scope or claim) stays a `KardinalLimitError`.
  */
