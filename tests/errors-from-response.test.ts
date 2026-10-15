@@ -22,8 +22,8 @@ describe("fromResponse", () => {
   });
 
   it("maps NOT_ALLOWED to KardinalLimitError, not KardinalAuthError", () => {
-    // For a builder account a 403 always means an agency limit was reached
-    // (see NOT_ALLOWED in openapi.yaml), never a permission refusal.
+    // For a builder account a 403 is an agency limit by default (see
+    // NOT_ALLOWED in openapi.yaml); only the two messages below it are not.
     const err = fromResponse({
       status: 403,
       requestId: null,
@@ -59,6 +59,42 @@ describe("fromResponse", () => {
     expect(err.message).toBe("The requested action is not allowed.");
     expect(err.details).toBe("The resulting plan violates the quotas configuration of the agency");
     expect(err.errors).toEqual(errors);
+  });
+
+  it("maps a revoked or regenerated key (403) to KardinalAuthError", () => {
+    const err = fromResponse({
+      status: 403,
+      requestId: null,
+      errors: error("NOT_ALLOWED", "the token is invalid"),
+    });
+    expect(err).toBeInstanceOf(KardinalAuthError);
+    expect(err.status).toBe(403);
+    expect(err.code).toBe("NOT_ALLOWED");
+    expect(err.details).toBe("the token is invalid");
+  });
+
+  it("maps an archived plan refused without force (403) to KardinalValidationError", () => {
+    const err = fromResponse({
+      status: 403,
+      requestId: null,
+      errors: error(
+        "NOT_ALLOWED",
+        "Cannot update an archived plan, except with the 'force' query param"
+      ),
+    });
+    expect(err).toBeInstanceOf(KardinalValidationError);
+    expect(err).not.toBeInstanceOf(KardinalLimitError);
+    expect(err.status).toBe(403);
+    expect(err.code).toBe("NOT_ALLOWED");
+  });
+
+  it.each([
+    "The maximum number of optimizations per day (1500) has been reached for agency a1",
+    "the token is invalid, really",
+    "Cannot update an archived plan",
+  ])("keeps %j in KardinalLimitError: only an exact match changes the family", (details) => {
+    const err = fromResponse({ status: 403, requestId: null, errors: error("NOT_ALLOWED", details) });
+    expect(err).toBeInstanceOf(KardinalLimitError);
   });
 
   it("keeps a future 403 code in KardinalLimitError", () => {

@@ -187,10 +187,12 @@ its delivery).
 
 ```
 KardinalError
-├── KardinalAuthError           NOT_AUTHENTICATED (401): missing, invalid or expired key
-├── KardinalLimitError          any 403 (NOT_ALLOWED): plan-size limit, optimization quota,
-│                               or insufficient credits
-├── KardinalValidationError     the 7 codes under 400, with the full error list
+├── KardinalAuthError           NOT_AUTHENTICATED (401): missing, invalid or expired key;
+│                               also a 403 "the token is invalid": revoked or regenerated key
+├── KardinalLimitError          a 403 (NOT_ALLOWED): plan-size limit, optimization quota,
+│                               or insufficient credits; the default for any other 403
+├── KardinalValidationError     the 7 codes under 400, with the full error list; also a 403
+│                               for an archived plan updated without `force`
 ├── KardinalNotFoundError       NOT_FOUND: raised on every 404, including reads
 ├── KardinalRateLimitError      429: temporary overload, retry after a pause
 ├── KardinalServerError         INTERNAL_SERVER_ERROR, or any other 5xx
@@ -256,9 +258,15 @@ Every error carries `.code`, `.status`, `.requestId`, `.retryable`,
 the response; `.details` is the `properties.details` of the error `.code`
 came from, the only way to tell apart errors that share a code.
 
-`KardinalLimitError` is what every 403 becomes: for a builder account, a
-403 always means a limit was hit, never a permission refusal. `.details`
-says which one. For a plan-size limit (too many resources, orders or
+`KardinalLimitError` is what a 403 becomes by default, because for a builder
+account a 403 usually means a limit was hit. Two 403s are not limits and are
+recognised by the exact text of their `.details`: `the token is invalid` (a
+revoked or regenerated key) raises `KardinalAuthError`, and
+`Cannot update an archived plan, except with the 'force' query param` raises
+`KardinalValidationError`: add `force: true` to the request. The second one
+has no field path in `.errors`. Any other 403, including a rejected scope or
+claim, stays a `KardinalLimitError`. For a limit, `.details` says which one.
+For a plan-size limit (too many resources, orders or
 stops, or more than 4 stops in an order without `successiveStops`),
 `.errors` also holds one `INVALID_VALUE` entry per exceeded limit, whose
 `properties.path` and `properties.details` name the field and the allowed

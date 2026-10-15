@@ -21,6 +21,12 @@
  * `404 NOT_FOUND` differ only by it ("Plan not found" vs. "Solution version
  * not found."). Both are empty for client-side errors and for a 429, which
  * carries no envelope.
+ *
+ * A 403 is a limit by default (`KardinalLimitError`). Two 403s that are not
+ * limits are recognised by the exact text of their `details`: a revoked or
+ * regenerated key (`KardinalAuthError`) and an archived plan updated without
+ * `force` (`KardinalValidationError`). Any other 403 (an unknown message, a
+ * rejected scope or claim) stays a `KardinalLimitError`.
  */
 
 /** One `Error` object of the response envelope. */
@@ -67,16 +73,23 @@ export class KardinalError extends Error {
   }
 }
 
-/** `NOT_AUTHENTICATED` (401): the API key is missing, malformed, or
- * expired, or was issued for another environment. */
+/**
+ * `NOT_AUTHENTICATED` (401): the API key is missing, malformed, or
+ * expired, or was issued for another environment. Also raised for a 403
+ * `NOT_ALLOWED` whose `details` is `the token is invalid`: a key revoked or
+ * regenerated (`.status` is 403 then, `.code` `NOT_ALLOWED`).
+ */
 export class KardinalAuthError extends KardinalError {}
 
 /**
- * Any 403 (`NOT_ALLOWED`): a limit of the agency was hit — a plan-size
+ * A 403 (`NOT_ALLOWED`) that is a limit of the agency — a plan-size
  * limit (resources, orders, stops, stops per order without
  * `successiveStops`), the daily/monthly optimization quota, or exhausted
- * credits. For a builder account a 403 never means a permission refusal
- * (see `NOT_ALLOWED` in openapi.yaml).
+ * credits. This is the default for a 403: the two 403s that are known not
+ * to be limits (a revoked key, an archived plan updated without `force`)
+ * raise `KardinalAuthError` and `KardinalValidationError`. Any other 403
+ * lands here too, including the ones the API may add and the rejection of a
+ * scope or a claim, which are not recognised separately.
  *
  * `.details` says which limit. For a plan-size limit, `.errors` also has an
  * `INVALID_VALUE` entry, placed first by the API, whose `properties.path`
@@ -90,6 +103,11 @@ export class KardinalLimitError extends KardinalError {}
  * One of the 7 business codes returned under 400. A single 400 can report
  * several invalid fields at once: `.errors` has them all, not just the
  * first.
+ *
+ * Also raised for a 403 `NOT_ALLOWED` whose `details` says an archived plan
+ * can't be updated, stopped or restarted without `force`: fix the request by
+ * adding `force=true`. Unlike other validation errors, this one has no field
+ * path in `.errors`.
  */
 export class KardinalValidationError extends KardinalError {}
 
@@ -216,6 +234,14 @@ const VALIDATION_CODES = new Set([
   "PRECONDITION_FAILED",
   "NOT_IMPLEMENTED",
 ]);
+// The two 403 messages that are not limits. Each is an exact match on the
+// `properties.details` of the NOT_ALLOWED error, copied from the backend; if
+// the backend rewords one, the 403 falls back to KardinalLimitError.
+// Source: coretech/go-jwt, client/base.go (token no longer valid).
+const REVOKED_TOKEN_DETAILS = "the token is invalid";
+// Source: coretech/phoebe, manager/plan_manager.go (validateAndUpdatePlan
+// and UpdateRunning).
+const ARCHIVED_PLAN_DETAILS = "Cannot update an archived plan, except with the 'force' query param";
 const AUTH_CODES = new Set(["NOT_AUTHENTICATED"]);
 
 type ErrorClass = new (message: string, opts: KardinalErrorOptions) => KardinalError;
@@ -268,7 +294,12 @@ export function fromResponse(opts: {
   const retryable = status === 429 || (status >= 500 && method.toUpperCase() !== "POST");
 
   let Family: ErrorClass;
-  if (status === 403) Family = KardinalLimitError;
+  if (status === 403) {
+    const details = primary?.properties?.details;
+    if (details === REVOKED_TOKEN_DETAILS) Family = KardinalAuthError;
+    else if (details === ARCHIVED_PLAN_DETAILS) Family = KardinalValidationError;
+    else Family = KardinalLimitError;
+  }
   else if (AUTH_CODES.has(code)) Family = KardinalAuthError;
   else if (VALIDATION_CODES.has(code)) Family = KardinalValidationError;
   else if (code === "NOT_FOUND") Family = KardinalNotFoundError;
