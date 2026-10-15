@@ -86,7 +86,7 @@ export class KardinalAuthError extends KardinalError {}
  * limit (resources, orders, stops, stops per order without
  * `successiveStops`), the daily/monthly optimization quota, or exhausted
  * credits. This is the default for a 403: the two 403s that are known not
- * to be limits (a revoked key, an archived plan updated without `force`)
+ * to be limits (a revoked key, an archived plan updated, stopped or restarted without `force`)
  * raise `KardinalAuthError` and `KardinalValidationError`. Any other 403
  * lands here too, including the ones the API may add and the rejection of a
  * scope or a claim, which are not recognised separately.
