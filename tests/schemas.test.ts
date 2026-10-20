@@ -102,6 +102,24 @@ describe("parsePlanCreate (rules shared with the Python SDK)", () => {
     expect(() => parsePlanCreate({ resources: [{ ...resource, priority: 0.5 }] })).toThrow(z.ZodError);
   });
 
+  it.each(["height", "width", "length"])("takes a truck %s in whole centimetres only", (field) => {
+    const truck = (value: number) => ({ resources: [{ ...resource, vehicleProfile: { type: "truck", [field]: value } }] });
+    expect(() => parsePlanCreate(truck(380))).not.toThrow();
+    let error: unknown;
+    try {
+      parsePlanCreate(truck(4.2));
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(z.ZodError);
+    expect((error as z.ZodError).issues).toEqual([
+      expect.objectContaining({
+        path: ["resources", 0, "vehicleProfile", field],
+        message: "Expected a whole number of centimetres (4.2 m is 420)",
+      }),
+    ]);
+  });
+
   it("rejects an unknown vehicle profile type", () => {
     expect(() => parsePlanCreate({ resources: [{ ...resource, vehicleProfile: { type: "boat" } }] })).toThrow(
       z.ZodError
@@ -223,6 +241,24 @@ describe("the shapes a key can hide in", () => {
       expect(unknownFields(plan), name).toEqual([]);
       expect(() => parsePlanCreate(plan), name).not.toThrow();
     }
+  });
+
+  it("refuses a decimal in every vehicle profile property that the spec types as an integer", () => {
+    // Types are generated from the spec but the runtime checks are written by
+    // hand: a field that becomes `integer` in the spec fails here until its
+    // check follows.
+    const schemas = (yaml.load(readFileSync("spec/openapi.yaml", "utf8")) as any).components.schemas;
+    let found = 0;
+    for (const name of Object.keys(schemas).filter((n) => n.startsWith("VehicleProfile"))) {
+      const type = schemas[name].properties.type.enum[0];
+      for (const [key, property] of Object.entries<any>(schemas[name].properties)) {
+        if (property.type !== "integer") continue;
+        found++;
+        const plan = { resources: [{ ...res, vehicleProfile: { type, [key]: 1.5 } }] };
+        expect(() => parsePlanCreate(plan), `${name}.${key}`).toThrow(z.ZodError);
+      }
+    }
+    expect(found).toBeGreaterThan(0);
   });
 
   it("still reports a typo inside a vehicle profile, and an option of another variant", () => {

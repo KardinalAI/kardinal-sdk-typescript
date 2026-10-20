@@ -162,6 +162,10 @@ const carOptions = {
   avoidTollRoad: z.boolean().optional(),
   avoidUTurns: z.boolean().optional(),
 };
+// The message names the unit: a decimal here is most likely a value in metres,
+// and the default "expected integer" would push the developer to round it to
+// a whole number that the API reads as centimetres, with no error.
+const centimetres = z.number().int({ message: "Expected a whole number of centimetres (4.2 m is 420)" });
 const vehicleProfileSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("fly"), kmph: z.number().optional() }).passthrough(),
   z.object({ type: z.literal("pedestrian"), ...roadOptions }).passthrough(),
@@ -199,9 +203,9 @@ const vehicleProfileSchema = z.discriminatedUnion("type", [
           ]),
         )
         .optional(),
-      height: z.number().optional(),
-      width: z.number().optional(),
-      length: z.number().optional(),
+      height: centimetres.optional(),
+      width: centimetres.optional(),
+      length: centimetres.optional(),
       tunnelCategory: z.enum(["B", "C", "D", "E"]).optional(),
     })
     .passthrough(),
