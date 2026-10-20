@@ -111,7 +111,8 @@ layer needs (not the API itself) live in `src/routing/schemas.ts`.
   discriminator look absent. Fixed with the hand-written `Order`/`Stop`
   types and schemas in `src/routing/schemas.ts`, not a spec change.
 - Fields with a `default:` value are generated as required, not optional
-  (`Order.priority`, `Resource.priority`): the opposite of
+  (`Order.priority`, `Resource.priority`, and `disableGroupProximity` in a
+  `maximizePrecedences` objective): the opposite of
   `datamodel-codegen`, where a default makes a field optional. The input
   type users write (`PlanCreateInput`, from the Zod schema) keeps them
   optional.

@@ -53,6 +53,8 @@ export interface paths {
          * @description Replaces the plan's data for this `id`, keeping the same `id`. The `version` is incremented, and the plan re-optimized, only if its content changed: a body identical to the stored plan changes nothing, keeps the same `version`, and isn't billed. The engine treats a changed plan as an update to the same problem and re-optimizes from the previous solution rather than from scratch. The body must be the complete plan: every resource and order to keep, plus any change. This is not a partial update, so anything omitted from the body is removed from the plan. Returns a `404` if no plan exists with this `id` — use `POST /plans` to create one instead.
          *
          *     This operation consumes credits — see [Pricing and credits](https://developers.kardinal.ai/reference/pricing-and-credits).
+         *
+         *     > **Modelling pitfall.** `force=true` on an archived plan always creates a new version and bills every stop again, even if the content is identical. Don't set it by default.
          */
         put: operations["putPlan"];
         post?: never;
@@ -80,6 +82,10 @@ export interface paths {
         /**
          * Stop or restart the optimization of a plan
          * @description Stops or restarts optimization on the current version of the plan, without changing its data or `version`.
+         *
+         *     A restart (body `true`) consumes credits like an update, by the same 24-hour rule (see [Pricing and credits](https://developers.kardinal.ai/reference/pricing-and-credits)), and it counts as one optimization against your agency's daily and monthly optimization quota (see [Limits and quotas](https://developers.kardinal.ai/reference/limits-and-quotas#reaching-a-limit-403)). A stop (body `false`) consumes no credits, isn't checked against the quota, and isn't counted.
+         *
+         *     An archived plan (one with `archivedAt` set) refuses a stop and a restart with a `403` `NOT_ALLOWED` whose `properties.details` reads `Cannot update an archived plan, except with the 'force' query param`. Add `?force=true` to unarchive it. An archived plan is more than 24 hours old, so a forced restart bills every stop again. A forced stop (body `false`) also unarchives the plan.
          */
         put: operations["putPlanRunning"];
         post?: never;
@@ -101,9 +107,11 @@ export interface paths {
         };
         /**
          * Retrieve the latest state of a plan
-         * @description Returns the most recent entry in the plan's state history: a single summary value (`waiting`, `processing`, `preOptimizing`, and so on — see `PlanState`). For the detailed per-stage breakdown (waiting room, creation, optimization, and, if predictive traffic is enabled, traffic fetching), see `PlanStatus` on the plan itself.
+         * @description Returns the latest state of a plan, as a single summary value (`waiting`, `processing`, `preOptimizing`, and so on — see `PlanState`). For the detailed per-stage breakdown (waiting room, creation, optimization, and, if predictive traffic is enabled, traffic fetching), see `PlanStatus` on the plan itself.
          *
-         *     > **Modelling pitfall.** The state history outlives the plan for a while: after a `DELETE`, this endpoint can keep answering `200`. The state shows `deleted` only if the plan had finished optimizing; otherwise it moves to `stopped`, then `interrupted`. To know whether a plan still exists, call `GET /plans/{planId}` instead.
+         *     `state` describes the latest version of the plan that `/state` knows about, not an earlier version you may still be waiting on. Just after a `PUT /plans/{planId}`, `/state` may not know the new version yet and can still describe the previous one, even as `optimized`. So read the `version` returned by your `PUT /plans/{planId}` (`item.version` in its response), and treat `optimized` as covering your changes only once `/state` reports a `planVersion` at least equal to that `version`. The check still works if the update changed nothing and the `version` stays the same. A restart with `PUT /plans/{planId}/running` keeps the same `version`, so this check can't tell the new run from the previous one. See [Polling the state and the solution](https://developers.kardinal.ai/concepts/how-the-optimization-engine-works#polling-the-state-and-the-solution).
+         *
+         *     > **Modelling pitfall.** The state outlives the plan for a while: after a `DELETE`, this endpoint can keep answering `200`. The state shows `deleted` only if the plan had finished optimizing; otherwise it moves to `stopped`, then `interrupted`. To know whether a plan still exists, call `GET /plans/{planId}` instead.
          */
         get: operations["getLastPlanState"];
         put?: never;
@@ -539,10 +547,10 @@ export interface components {
          * @enum {string}
          */
         PlanState: "waiting" | "processing" | "preOptimizing" | "preOptimized" | "optimizing" | "optimized" | "stopped" | "deleted" | "interrupted";
-        /** @description A snapshot of a plan's `PlanState` at a given point in time, one entry in its state history. */
+        /** @description A plan's `PlanState` for one version of the plan. */
         TimedPlanState: {
             /**
-             * @description The corresponding plan's version.
+             * @description The version of the plan this state describes.
              * @example 2
              */
             planVersion?: components["schemas"]["PlanVersion"];
@@ -551,9 +559,9 @@ export interface components {
             /** @description The plan's state at `timestamp`. */
             state?: components["schemas"]["PlanState"];
         };
-        /** @description A single plan state-history entry wrapped with its identifying metadata. */
+        /** @description A plan's latest state, wrapped with its identifying metadata. */
         EnvelopedTimedPlanState: {
-            /** @description The state-history entry itself. */
+            /** @description The state itself. */
             item?: components["schemas"]["TimedPlanState"];
             agencyId?: components["schemas"]["AgencyId"];
             planId?: components["schemas"]["PlanId"];
@@ -731,6 +739,8 @@ export interface components {
             workingTimeWindow: components["schemas"]["TimeWindow"];
             /**
              * @description Maximum working time (travel, service, breaks and waiting combined) inside `workingTimeWindow`, in ISO 8601 duration format.
+             *
+             *     > **Modelling pitfall.** On a resource that works several days, size it for the whole trip, counting the time spent on breaks and on waiting. A cap sized for one working day rules out any tour that works on both sides of the rest. The engine then leaves unplaced the stops that need such a tour, with no error.
              * @example PT8H
              */
             maxWorkingDuration?: components["schemas"]["Duration"];
@@ -751,7 +761,11 @@ export interface components {
              *     > **Default.** Each key of the structured form is independent; an absent key means no constraint on that segment, not a constraint set to zero.
              */
             maxInterStopDuration?: components["schemas"]["Duration"] | components["schemas"]["MaxInterStopDurationBounds"];
-            /** @description Breaks to schedule into this resource's tour; see `Break` for the three available kinds. */
+            /**
+             * @description Breaks to schedule into this resource's tour; see `Break` for the three available kinds.
+             *
+             *     > **Modelling pitfall.** Currently, the engine schedules a break only where the vehicle already stands, at the start of its tour or at a stop, never in the middle of a drive. A single drive longer than the allowed gap between two breaks makes that drive impossible for the vehicle. The engine leaves the stops that need it unplaced, returns no error, and no violation names the break. If every tour of the vehicle needs that drive, the vehicle is not used at all. See [Where a break can fall](https://developers.kardinal.ai/guides/advanced-constraints#where-a-break-can-fall).
+             */
             breaks?: components["schemas"]["Break"][];
             /** @description Policies excluding specific operation durations from this resource's tour; see `OperationDurationPolicy`. */
             operationDurationPolicies?: components["schemas"]["OperationDurationPolicy"][];
@@ -831,7 +845,7 @@ export interface components {
              *
              *     > **Modelling pitfall.** A contractual delivery window is not automatically a hard one. Ask what should happen if the fleet cannot hit it: if a late visit is acceptable, use `preferredTimeWindows` instead.
              *
-             *     > **Modelling pitfall.** `begin`/`end` bound the resource's *arrival* at the stop, not when it finishes: the stop can complete up to `operationDuration` after `end`. To express "must be done and gone by 15:00", subtract `operationDuration` from `end` yourself (for a 15-minute operation, set `end` to `"...T14:45:00"`); the API does not do this for you.
+             *     > **Modelling pitfall.** `begin`/`end` bound the resource's *arrival* at the stop, not when it finishes: the stop can complete up to `operationDuration` after `end`. To express "must be done and gone by 15:00", subtract `operationDuration` from `end` yourself (for a 15-minute operation, set `end` to `"2026-08-03 14:45"`); the API does not do this for you.
              * @example [
              *       {
              *         "begin": "2026-03-17T08:00:00+01:00",
@@ -941,7 +955,9 @@ export interface components {
              */
             name?: string;
             /**
-             * @description The constraint's maximum allowed cumulated cost.
+             * @description The constraint's maximum allowed cumulated cost, in the same unit as the costs in `costsByResourceTag`. This is a hard limit: the engine leaves stops unplanned rather than exceed it, so a mandatory stop can end up in `unaffectedStopIds`. The exception is locked tours (`state.mode: fixed`) that already cost more than `maximum`: the engine keeps the locked stops, goes over `maximum`, and reports it in `globalViolations`.
+             *
+             *     > **Default.** Always set `maximum`. When it is omitted, the API stores 0, with no error and no warning, so the cap allows no counted cost: with a positive `using` cost, the resources that carry the tags in `costsByResourceTag` can't be used.
              * @example 1000
              */
             maximum?: number;
@@ -985,20 +1001,28 @@ export interface components {
          * @enum {string}
          */
         ObjectivesEnum: "maximizeMandatoryStops" | "minimizeDelay" | "minimizeCosts" | "minimizeResources" | "minimizeOverOverlappingCapacitiesOnStops" | "maximizeOptionalStops" | "maximizePreferredStops" | "minimizeLargestTourDuration" | "minimizeWorkingDuration" | "minimizeDistance" | "minimizeEarlyLoadings";
-        /** @description A pair of precedence stop tags. */
+        /**
+         * @description A pair of stop tags that the engine tries to visit in this order.
+         *
+         *     The pair only counts between stops of the same tour, and it looks at the order of the visits, not at their times. Pairs chain: "A before B" and "B before C" also mean "A before C". A loop of pairs is refused with a 400 error.
+         */
         StopTagPrecedencePair: {
             /**
-             * @description Stop tag that must be visited before any stop tagged `next`.
+             * @description Stop tag that the engine tries to visit before any stop tagged `next` in the same tour.
              * @example sector1
              */
             previous: string & components["schemas"]["RegexIdValidation"];
             /**
-             * @description Stop tag that the engine tries to visit only after every stop tagged `previous`.
+             * @description Stop tag that the engine tries to visit only after every stop tagged `previous` in the same tour.
              * @example sector2
              */
             next: string & components["schemas"]["RegexIdValidation"];
         };
-        /** @description Objective that rewards the engine for respecting a set of "this stop tag before that stop tag" precedence pairs, as an entry in `PlanObjectives`. */
+        /**
+         * @description Objective that rewards the engine for respecting a set of "this stop tag before that stop tag" precedence pairs, as an entry in `PlanObjectives`.
+         *
+         *     > **Modelling pitfall.** This is a preference, not a hard rule: the engine can break a pair when time windows or other objectives make it the better choice. When the engine plans the tour itself, the only order it always keeps is the order of the stops inside one order's `stops` array. Ranked before `minimizeResources`, `maximizePrecedences` can make the engine use more vehicles than it needs: for example, four stops that one vehicle could serve can end up split over two vehicles.
+         */
         MaximizePrecedencesObjective: {
             /**
              * @description Discriminator identifying this objective as `maximizePrecedences`.
@@ -1007,8 +1031,15 @@ export interface components {
             type: "maximizePrecedences";
             /** @description Precedence pairs the engine tries to satisfy as many of as possible. */
             precedences: components["schemas"]["StopTagPrecedencePair"][];
-            /** @description If true, disables the group proximity objective that otherwise runs alongside this one. */
-            disableGroupProximity?: boolean;
+            /**
+             * @description If true, the engine does not add the second objective that it otherwise runs right after `maximizePrecedences`.
+             *
+             *     That second objective brings each badly placed stop closer to its first valid position, to keep the stops of one sector together. It therefore ranks before every objective listed after `maximizePrecedences`, including `minimizeCosts` and `minimizeDistance`.
+             *
+             *     > **When to use.** Set it to `true` when you need the order of the pairs but not the grouping by sector.
+             * @default false
+             */
+            disableGroupProximity: boolean;
         };
         /**
          * @description Cost structure mapped by resource tag. Unlike `emptyThresholdByCapacityByResourceTag` or `avoidEarlyLoadingsByResourceTag`, the wildcard tag "*" is not supported here — use a named resource tag for every entry.
@@ -1093,7 +1124,7 @@ export interface components {
          *
          *     A datetime can always be given in ISO 8601 with an explicit offset or `Z`, for example these three values for the same instant: `2025-05-22T05:43:00Z`, `2025-05-22T06:43:00+01:00`, `2025-05-22T07:43:00+02:00`. Pairing a local datetime with a `tz` value is a more human-readable alternative input: `2025-05-22 07:43` with `tz: "Europe/Paris"` denotes that same instant, and seconds are optional.
          *
-         *     With `tz`, a local datetime must use a space between date and time. The `T` form without `Z` and without an offset (`2025-05-22T07:43:00`) is rejected. Without `tz`, any local datetime is rejected with HTTP 400, not read as UTC. A `Z` or an offset in a datetime always wins over `tz`. Milliseconds in a `Z` datetime are accepted and dropped. The offset follows the date: for example, `Europe/Paris` gives `+02:00` in summer and `+01:00` in winter.
+         *     With `tz`, a local datetime must use a space between date and time. The `T` form without `Z` and without an offset (`2025-05-22T07:43:00`) is rejected. Without `tz`, any local datetime is rejected with HTTP 400, not read as UTC. A `Z` or an offset in a datetime always wins over `tz`. Use one form for every datetime of a plan: a plan that mixes local datetimes with `Z` or offset datetimes returns no error, but a window whose two ends use different forms can shrink without warning. Milliseconds in a `Z` datetime are accepted and dropped. The offset follows the date: for example, `Europe/Paris` gives `+02:00` in summer and `+01:00` in winter.
          *
          *     When `tz` is set, the API writes the datetimes of the stored plan and of the solution back in the offset of that zone, even if they were sent as `Z`. Read-only fields such as `createdAt` are always in `Z`. Set `tz` in every plan, even when every datetime carries an offset, so that responses are consistent.
          *
@@ -1186,7 +1217,11 @@ export interface components {
          *     > **Default.** For a resource whose `workingTimeWindow` spans more than one calendar day, `breaks` is where daily rest has to be encoded; a wide window does not produce it on its own.
          */
         Break: components["schemas"]["TimeWindowBreak"] | components["schemas"]["TravelDurationSlidingBreak"] | components["schemas"]["WorkingDurationSlidingBreak"];
-        /** @description A required break of a given duration in a given time window, triggered by a fixed clock time. Acts like a `workingTimeWindow` plus `maxWorkingDuration` pair scoped to the break itself. */
+        /**
+         * @description A required break of a given duration in a given time window, triggered by a fixed clock time. Acts like a `workingTimeWindow` plus `maxWorkingDuration` pair scoped to the break itself.
+         *
+         *     > **Modelling pitfall.** The whole break must fit inside `timeWindow`, so it starts at the latest at the window's end minus `duration`. For example, a 45-minute break in a 12:00 to 14:00 window starts by 13:15.
+         */
         TimeWindowBreak: {
             /**
              * @description Discriminator identifying this break as `timeWindowBreak`. (enum property replaced by openapi-typescript)
@@ -1414,6 +1449,8 @@ export interface components {
          *     > **When to use.** A vehicle-type name that is itself an unambiguous heavy-vehicle designation (a truck, lorry, semi-trailer, tractor-trailer, or equivalent) is sufficient evidence to pick `truck` even with no numeric dimensions yet.
          *
          *     > **Default.** Setting `type: "truck"` and leaving every truck-only field unset does not apply any default legal-truck-road restriction; routing behaves exactly like `car` until one of those fields is actually set. Default to `car` when a vehicle's dimensions are genuinely unknown, and switch to `truck` once real dimensions or road restrictions are available.
+         *
+         *     > **Modelling pitfall.** `height`, `width`, and `length` are whole centimetres, not metres: a truck 3.8 m tall is `height: 380`. A value in metres that happens to be a whole number, such as `length: 12`, raises no error and is read as 12 centimetres, so the vehicle's size no longer restricts its route. A decimal such as `4.2` is refused with a `400`. Round after converting from metres, for example `round(width_m * 100)`, because `2.55 * 100` is not exactly `255` in floating-point arithmetic.
          */
         VehicleProfileTruck: {
             /**
@@ -1456,18 +1493,18 @@ export interface components {
             /** @description Countries to route around entirely. */
             excludedCountries?: components["schemas"]["CountryCodes"];
             /**
-             * @description Vehicle height, in metres, used to respect height-restricted roads such as low bridges.
-             * @example 4.2
+             * @description Vehicle height, as a whole number of centimetres, used to respect height-restricted roads such as low bridges.
+             * @example 420
              */
             height?: number;
             /**
-             * @description Vehicle width, in metres, used to respect width-restricted roads.
-             * @example 2.5
+             * @description Vehicle width, as a whole number of centimetres, used to respect width-restricted roads.
+             * @example 250
              */
             width?: number;
             /**
-             * @description Vehicle length, in metres, used to respect length-restricted roads.
-             * @example 12
+             * @description Vehicle length, as a whole number of centimetres, used to respect length-restricted roads.
+             * @example 1200
              */
             length?: number;
             tunnelCategory?: components["schemas"]["TunnelCategory"];
@@ -1533,7 +1570,7 @@ export interface components {
              */
             constantCost?: number;
             /**
-             * @description Minimum value of the base (distance, duration, or capacity) below which no cost applies, in the base's own unit.
+             * @description Minimum value of the base (distance, duration, capacity, or number of tagged stops) below which no cost applies, in the base's own unit.
              * @example 10
              */
             costFloor?: number;
@@ -1714,21 +1751,21 @@ export interface components {
          *
          *     | `code`                  | HTTP status | Default message | Returned when |
          *     | ------------------------ | ----------- | ---------------- | ------------- |
-         *     | `INVALID_INPUT`          | 400 | The payload cannot be parsed. | The request body isn't valid JSON, or doesn't match the expected schema (wrong type, missing required field). |
+         *     | `INVALID_INPUT`          | 400 | The payload cannot be parsed. | The request body isn't valid JSON, or doesn't match the expected schema (wrong type, missing required field). Also returned for a datetime the API cannot read, such as a `T` with no `Z` and no offset, or a local datetime in a plan without `tz` (see [Dates and time zones](https://developers.kardinal.ai/reference/data-model#dates-and-time-zones)). |
          *     | `ID_NOT_UNIQUE`          | 400 | The payload contains a collection with an id repeated multiple times. | A collection in the payload (for example `resources`, `orders`) has the same `id` on more than one item. |
          *     | `KEYS_NOT_UNIQUE`        | 400 | The payload contains a collection with the keys repeated multiple times. | A collection has a repeated business key other than `id` (for example a tag or reference field expected to be unique). |
          *     | `INVALID_ID_REFERENCE`   | 400 | The id reference contains an id that does not exist. | A field references an `id` that doesn't match anything else in the payload or system (for example a `resourceId` that doesn't exist). |
          *     | `INVALID_VALUE`          | 400 | The field value is not valid. | A field's value fails a validation rule: format, range, or allowed values. |
-         *     | `PRECONDITION_FAILED`    | 400 | A precondition failed. | The action requires the target resource to be in a particular state, and it isn't (for example acting on an already-deleted or already-archived object). |
+         *     | `PRECONDITION_FAILED`    | 400 | A precondition failed. | The action requires the target resource to be in a particular state, and it isn't (for example acting on an already-deleted object). |
          *     | `NOT_IMPLEMENTED`        | 400 | Not yet implemented. | The requested behaviour is recognized but not available yet. Despite the name, this returns `400`, not `501`; treat it as a client-facing "not supported" rather than a server capability gap. |
-         *     | `NOT_AUTHENTICATED`      | 401 | The caller is not authenticated. | No access token was sent, or it's missing, malformed, or expired. |
-         *     | `NOT_ALLOWED`            | 403 | The requested action is not allowed. | An agency limit was reached: an optimization quota, a plan size limit, or insufficient credits. `properties.details` states which one. |
+         *     | `NOT_AUTHENTICATED`      | 401 | The caller is not authenticated. | No access token was sent, or it's missing, malformed, or expired. A token revoked or regenerated in the Console gets a `403` `NOT_ALLOWED` instead. |
+         *     | `NOT_ALLOWED`            | 403 | The requested action is not allowed. | Usually an agency limit was reached: an optimization quota, a plan size limit, or insufficient credits. Two other cases return it and are not limits: a token revoked or regenerated in the Console (`properties.details` is `the token is invalid`), and an update, stop or restart of an archived plan without `force`. `properties.details` states which case applies. |
          *     | `NOT_FOUND`              | 404 | The requested object could not be found. | The resource addressed by the URL doesn't exist, or isn't visible to the caller (the API doesn't distinguish the two, to avoid leaking existence of resources you can't access). |
          *     | `INTERNAL_SERVER_ERROR`  | 500 | The server encountered an unexpected condition that prevented it from fulfilling the request. | Unexpected server-side failure, unrelated to the request's content. If this persists, contact support with the request's timestamp. |
          *
          *     This enum reflects the codes returned by the current server implementation. New codes may be added in future non-breaking releases; treat an unrecognized `code` value defensively (fall back to the HTTP status and `message`) rather than assuming this list is closed.
          *
-         *     One thing this catalogue does not cover: **infeasible plans are not an error.** Submitting a plan the engine can't fully satisfy still returns a normal `200`/`201`. The plan is accepted, and unplanned stops or constraint violations show up in the solution (`unaffectedStopIds`, `violations`) rather than as an `Error`.
+         *     One thing this catalogue does not cover: **infeasible plans are not an error.** Submitting a plan the engine can't fully satisfy still returns a normal `200`/`201`. The plan is accepted, and unplanned stops or constraint violations show up in the solution (`unaffectedStopIds`, `tours[].violations` and, when present, `globalViolations`) rather than as an `Error`.
          */
         Error: {
             /**
@@ -1784,7 +1821,7 @@ export interface components {
         /**
          * @description The engine's best solution found for a plan: which tour each resource runs, which stops could not be placed, and the resulting objective values.
          *
-         *     > **Modelling pitfall.** An infeasible or partially served plan is not an error: the response is still a normal `200`/`201`. Check `unaffectedStopIds` and `tours[].violations` to detect an incomplete solution, rather than relying on the HTTP status.
+         *     > **Modelling pitfall.** An infeasible or partially served plan is not an error: the response is still a normal `200`/`201`. Check `unaffectedStopIds`, `tours[].violations` and, when present, `globalViolations` to detect a solution that leaves stops out or breaks a constraint, rather than relying on the HTTP status.
          */
         Solution: {
             agencyId?: components["schemas"]["AgencyId"];
@@ -1896,9 +1933,11 @@ export interface components {
         SolutionObjective: {
             /**
              * @description Objective name, matching an `ObjectivesEnum` value or a `CustomObjective`'s `name`.
+             *
+             *     `maximizePrecedences` produces `maximizePrecedences(valid-precedences)` and `maximizePrecedences(valid-precedences-group-proximity)`. With `disableGroupProximity` set to `true`, it produces the single name `maximizePrecedences`.
              * @example minimizeCosts
              */
-            name?: string & components["schemas"]["RegexIdValidation"];
+            name?: string;
             /** @description Priority level covered by this objective entry. Only set for `maximizeMandatoryStops`, `maximizeOptionalStops`, and `minimizeResources`, which the engine splits into one entry per `priority` value present in the plan, so the same objective can appear once per level. */
             priority?: number;
             /** @description Whether this objective's value was minimized or maximized. */
@@ -2004,8 +2043,8 @@ export interface components {
              */
             maximum?: number;
             /**
-             * @description The cumulated cost by which `maximum` was exceeded.
-             * @example 150
+             * @description The total cumulated cost counted by the constraint, which is greater than `maximum`. It is not the excess: with `maximum` 100 and a counted total of 140, `exceededCost` is 140, not 40.
+             * @example 1150
              */
             exceededCost?: number;
         };
@@ -2875,7 +2914,7 @@ export interface components {
                 "application/json": components["schemas"]["EnvelopedErrors"];
             };
         };
-        /** @description The caller is not authenticated (`code: NOT_AUTHENTICATED`): no access token was sent, or it's missing, malformed, or expired. */
+        /** @description The caller is not authenticated (`code: NOT_AUTHENTICATED`): no access token was sent, or it's missing, malformed, or expired. A token revoked or regenerated in the Console doesn't get a `401`: it gets a `403` `NOT_ALLOWED` instead (see the `403` response). */
         NotAuthenticated: {
             headers: {
                 [name: string]: unknown;
@@ -2884,7 +2923,7 @@ export interface components {
                 "application/json": components["schemas"]["EnvelopedErrors"];
             };
         };
-        /** @description The caller is not allowed to perform this action (`code: NOT_ALLOWED`): for a builder account, this currently always means that an agency limit was reached, whether an optimization quota, a plan size limit, or insufficient credits. `properties.details` states which one. See [Limits and quotas](https://developers.kardinal.ai/reference/limits-and-quotas). */
+        /** @description The caller is not allowed to perform this action (`code: NOT_ALLOWED`): this usually means that an agency limit was reached, whether an optimization quota, a plan size limit, or insufficient credits. Two other situations return the same `403`, and neither is a limit: a token revoked or regenerated in the Console, which gets this `403` on every endpoint, reads and `DELETE` included, and an update, stop or restart of an archived plan without `force`. `properties.details` states which case applies. See [Limits and quotas](https://developers.kardinal.ai/reference/limits-and-quotas). */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -2925,7 +2964,11 @@ export interface components {
         page: number;
         /** @description The number of items per page in a paginated list of records. */
         itemsPerPage: number;
-        /** @description If true, on an archived item, the requested action is forced and the item is unarchived. */
+        /**
+         * @description If true, on an archived item, the requested action is forced and the item is unarchived. Without it, an archived plan refuses an update, a stop and a restart with a `403` `NOT_ALLOWED`. On a plan that isn't archived, `force` has no effect.
+         *
+         *     > **Modelling pitfall.** On an archived plan, `force=true` bills every stop again, on an update as on a restart. An update with `force=true` always creates a new version, even if its content is identical. Don't set `force` by default. See [Pricing and credits](https://developers.kardinal.ai/reference/pricing-and-credits).
+         */
         force: boolean;
         /** @description Indicates if and how archived items should be part of the result. */
         archived: "excluded" | "included" | "only";
@@ -3026,7 +3069,11 @@ export interface operations {
     putPlan: {
         parameters: {
             query?: {
-                /** @description If true, on an archived item, the requested action is forced and the item is unarchived. */
+                /**
+                 * @description If true, on an archived item, the requested action is forced and the item is unarchived. Without it, an archived plan refuses an update, a stop and a restart with a `403` `NOT_ALLOWED`. On a plan that isn't archived, `force` has no effect.
+                 *
+                 *     > **Modelling pitfall.** On an archived plan, `force=true` bills every stop again, on an update as on a restart. An update with `force=true` always creates a new version, even if its content is identical. Don't set `force` by default. See [Pricing and credits](https://developers.kardinal.ai/reference/pricing-and-credits).
+                 */
                 force?: components["parameters"]["force"];
             };
             header?: never;
@@ -3087,7 +3134,11 @@ export interface operations {
     putPlanRunning: {
         parameters: {
             query?: {
-                /** @description If true, on an archived item, the requested action is forced and the item is unarchived. */
+                /**
+                 * @description If true, on an archived item, the requested action is forced and the item is unarchived. Without it, an archived plan refuses an update, a stop and a restart with a `403` `NOT_ALLOWED`. On a plan that isn't archived, `force` has no effect.
+                 *
+                 *     > **Modelling pitfall.** On an archived plan, `force=true` bills every stop again, on an update as on a restart. An update with `force=true` always creates a new version, even if its content is identical. Don't set `force` by default. See [Pricing and credits](https://developers.kardinal.ai/reference/pricing-and-credits).
+                 */
                 force?: components["parameters"]["force"];
             };
             header?: never;
