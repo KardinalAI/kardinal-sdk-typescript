@@ -252,7 +252,9 @@ describe("the shapes a key can hide in", () => {
     for (const name of Object.keys(schemas).filter((n) => n.startsWith("VehicleProfile"))) {
       const type = schemas[name].properties.type.enum[0];
       for (const [key, property] of Object.entries<any>(schemas[name].properties)) {
-        if (property.type !== "integer") continue;
+        // A property can be typed directly or through `allOf: [$ref]`.
+        const ref = property.allOf?.[0]?.$ref;
+        if ((ref ? schemas[ref.split("/").pop()] : property).type !== "integer") continue;
         found++;
         const plan = { resources: [{ ...res, vehicleProfile: { type, [key]: 1.5 } }] };
         expect(() => parsePlanCreate(plan), `${name}.${key}`).toThrow(z.ZodError);
