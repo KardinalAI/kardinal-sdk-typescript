@@ -14,6 +14,10 @@ The package is published as `@kardinal-ai/sdk`, and the command is
 Documentation: https://developers.kardinal.ai/sdks/overview (SDK guides and reference)
 and https://developers.kardinal.ai (the API itself).
 
+Changelog: https://developers.kardinal.ai/sdks/typescript/changelog (what changes in
+each release of this SDK) and https://developers.kardinal.ai/reference/changelog
+(what changes in the API itself).
+
 ## Quickstart
 
 ```ts
