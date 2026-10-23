@@ -473,7 +473,7 @@ export interface components {
                 [key: string]: components["schemas"]["Capacities"];
             };
             /**
-             * @description Early loading declarations grouped by resource tag. The wildcard tag "*" matches all resources. Each entry identifies a stop tag and optional capacities used to compute the `minimizeEarlyLoadings` objective.
+             * @description Early loading declarations grouped by resource tag. The wildcard tag "*" matches all resources. Each entry names a stop tag for the `minimizeEarlyLoadings` objective, and optionally the capacities to track. A plan with declarations must also list that objective in `objectives`. Otherwise, the plan is refused with a `400`. See `AvoidEarlyLoading`.
              * @example {
              *       "*": [
              *         {
@@ -520,7 +520,7 @@ export interface components {
             agencyId?: components["schemas"]["AgencyId"];
             planId?: components["schemas"]["PlanId"];
             planVersion?: components["schemas"]["PlanVersion"];
-            /** @description Amendments applied while processing this request, if any. */
+            /** @description Amendments applied, and probable mistakes found, while processing this request, if any. */
             warnings?: components["schemas"]["Warning"][];
         };
         /** @description An envelope carrying no item, only the reference of the plan the request acted on. */
@@ -529,7 +529,7 @@ export interface components {
             planId?: components["schemas"]["PlanId"];
             /** @description The plan's current version: unchanged by this request. */
             planVersion?: components["schemas"]["PlanVersion"];
-            /** @description Amendments applied while processing this request, if any. */
+            /** @description Amendments applied, and probable mistakes found, while processing this request, if any. */
             warnings?: components["schemas"]["Warning"][];
         };
         /**
@@ -783,7 +783,7 @@ export interface components {
              *     }
              */
             emptyThresholdByCapacity?: components["schemas"]["Capacities"];
-            /** @description Early loading declarations for this resource. Each entry identifies a stop tag and optional capacities used to compute the `minimizeEarlyLoadings` objective. */
+            /** @description Early loading declarations for this resource. Each entry names a stop tag for the `minimizeEarlyLoadings` objective, and optionally the capacities to track. A plan with declarations must also list that objective in `objectives`. Otherwise, the plan is refused with a `400`. See `AvoidEarlyLoading`. */
             avoidEarlyLoadings?: components["schemas"]["AvoidEarlyLoading"][];
         };
         /**
@@ -955,22 +955,27 @@ export interface components {
              */
             name?: string;
             /**
-             * @description The constraint's maximum allowed cumulated cost, in the same unit as the costs in `costsByResourceTag`. This is a hard limit: the engine leaves stops unplanned rather than exceed it, so a mandatory stop can end up in `unaffectedStopIds`. The exception is locked tours (`state.mode: fixed`) that already cost more than `maximum`: the engine keeps the locked stops, goes over `maximum`, and reports it in `globalViolations`.
-             *
-             *     > **Default.** Always set `maximum`. When it is omitted, the API stores 0, with no error and no warning, so the cap allows no counted cost: with a positive `using` cost, the resources that carry the tags in `costsByResourceTag` can't be used.
+             * @description The constraint's maximum allowed cumulated cost, in the same unit as the costs in `costsByResourceTag`. It is required and has no default: a constraint without it is rejected with a `400` `INVALID_VALUE` error. This is a hard limit: the engine leaves stops unplanned rather than exceed it, so a mandatory stop can end up in `unaffectedStopIds`. The exception is locked tours (`state.mode: fixed`) that already cost more than `maximum`: the engine keeps the locked stops, goes over `maximum`, and reports it in `globalViolations`.
              * @example 1000
              */
-            maximum?: number;
+            maximum: number;
+            /**
+             * @description The cost counted towards `maximum` for each resource that carries the tag, by resource tag.
+             *
+             *     > **Modelling pitfall.** A tag that no resource of the plan carries, for example one with a typing error, counts nothing. The API accepts the plan, and returns a warning for that tag in the `warnings` of its response.
+             */
             costsByResourceTag: components["schemas"]["CostsByResourceTag"];
         };
         /**
-         * @description Ordered list of objectives the engine pursues in strict lexicographic priority: it first searches for the best possible value of the first objective, then, among solutions tied on that value, optimizes the second, and so on down the list. Each entry is either a name from `ObjectivesEnum`, a `maximizePrecedences` object, or a `custom` object.
+         * @description Ordered list of objectives the engine pursues in strict lexicographic priority: it first searches for the best possible value of the first objective, then, among solutions tied on that value, optimizes the second, and so on down the list. A tie means exactly equal values, with no tolerance. Each entry is either a name from `ObjectivesEnum`, a `maximizePrecedences` object, or a `custom` object.
          *
          *     `maximizeMandatoryStops`, `maximizeOptionalStops`, and `minimizeResources` are split into one objective per `priority` value present in the plan, kept at the position of the original objective: stops are maximized from the most important level (lowest number) down, resources are minimized from the least important level (highest number) up.
          *
+         *     The list is used as given. The default list applies only when `objectives` is omitted or empty. Nothing is added to a list you set. Each entry may appear only once. A list with two entries of the same name is refused with a `400` `ID_NOT_UNIQUE` on `plan.objectives`. This rule also covers two `maximizePrecedences` objects, and two `custom` objects that share a `name`.
+         *
          *     > **When to use.** Reorder the list to change which objective the engine favours when two cannot both be improved at once, for example moving `minimizeCosts` ahead of `minimizeDistance` when cost matters more than raw kilometres for this fleet.
          *
-         *     > **Modelling pitfall.** Because priority is lexicographic rather than weighted, reordering the list can change the chosen solution even when every objective's value looks comparable; moving an objective earlier makes the engine trade off later objectives to protect it, not merely break ties differently.
+         *     > **Modelling pitfall.** Because priority is lexicographic rather than weighted, reordering the list can change the chosen solution even when every objective's value looks comparable; moving an objective earlier makes the engine trade off later objectives to protect it, not merely break ties differently. A list without `maximizeMandatoryStops` is accepted, but it may plan no stop at all: with `["minimizeDistance"]` alone, every stop stays unplanned.
          * @default [
          *       "maximizeMandatoryStops",
          *       "minimizeDelay",
@@ -997,7 +1002,7 @@ export interface components {
          *     - minimizeLargestTourDuration: Minimizes the working duration of the single longest tour across the fleet (travel, service, and waiting time), balancing workload between resources.
          *     - minimizeWorkingDuration: Minimizes the total working duration summed across every tour, waiting time included.
          *     - minimizeDistance: Minimizes the total distance travelled summed across every tour.
-         *     - minimizeEarlyLoadings: Minimizes early loadings; pairs with a resource's `avoidEarlyLoadings` declarations.
+         *     - minimizeEarlyLoadings: Minimizes early loadings. A loading is early when a vehicle loads an order at a stop with a declared tag, such as a depot, then comes back to a stop with that tag before delivering the order. The declarations go in a resource's `avoidEarlyLoadings` or in `Plan.avoidEarlyLoadingsByResourceTag` (see `AvoidEarlyLoading`). A plan with the objective and no declaration, or the reverse, is refused with a `400`.
          * @enum {string}
          */
         ObjectivesEnum: "maximizeMandatoryStops" | "minimizeDelay" | "minimizeCosts" | "minimizeResources" | "minimizeOverOverlappingCapacitiesOnStops" | "maximizeOptionalStops" | "maximizePreferredStops" | "minimizeLargestTourDuration" | "minimizeWorkingDuration" | "minimizeDistance" | "minimizeEarlyLoadings";
@@ -1258,7 +1263,13 @@ export interface components {
             maxInterBreakDuration: components["schemas"]["Duration"];
         };
         /**
-         * @description Declares a stop tag and optional capacities for early loading computation.
+         * @description Declares a stop tag where loading early should be avoided, for the `minimizeEarlyLoadings` objective. A loading is early when a vehicle loads an order at a stop with this tag, such as a depot, then comes back to a stop with the tag before delivering the order. The objective also tracks orders going the other way, such as a return that a vehicle collects elsewhere and brings back to a depot.
+         *
+         *     A pass is a visit to a stop with the tag. Consecutive stops with the tag count as one pass. For each tracked order, the objective counts the passes between the moment the order is loaded and the moment it is delivered. The pass where the order is loaded or unloaded at a stop with the tag counts too.
+         *
+         *     These declarations and the `minimizeEarlyLoadings` objective go together. A plan with one and not the other is refused with a `400` `INVALID_INPUT`. This includes a plan that omits `objectives`, because the default list doesn't contain `minimizeEarlyLoadings`.
+         *
+         *     > **Modelling pitfall.** A declaration can track nothing without raising any error, for example with a `stopTag` that no stop carries, a plan-level key that no resource carries, or `capacities` that no loaded stop carries. The objective is then missing from the solution, or its value is 0.
          * @example {
          *       "stopTag": "depot1",
          *       "capacities": [
@@ -1269,11 +1280,11 @@ export interface components {
          */
         AvoidEarlyLoading: {
             /**
-             * @description The stop tag identifying stops where early loading should be avoided.
+             * @description Stop tag of the stops where loading early should be avoided, for example a depot's tag.
              * @example depot1
              */
             stopTag: string & components["schemas"]["RegexIdValidation"];
-            /** @description Capacities to consider. If empty or omitted, all capacities are considered. */
+            /** @description Capacities whose loads are tracked. Only orders that load or unload one of these capacities at a stop with `stopTag` count. If the list is empty or omitted, all capacities are tracked. */
             capacities?: string[];
         };
         /** @description Policy to indicate which operation duration must not be taken into account. */
@@ -1565,7 +1576,7 @@ export interface components {
          */
         CostFloorsAndCoeffs: {
             /**
-             * @description Fixed cost added regardless of usage, in currency unit.
+             * @description Fixed cost added once per tour as soon as the base is greater than zero, whatever `costFloor` is, in currency unit. A tour whose base is 0 pays nothing, not even this amount.
              * @example 50
              */
             constantCost?: number;
@@ -1579,7 +1590,10 @@ export interface components {
              * @example 0.2
              */
             costCoeff?: number;
-            /** @description Value of the base beyond which `overcostCoeff` applies instead of `costCoeff`, in the base's own unit. The overcost rate is usually higher, and a value of 0 caps the cost. */
+            /**
+             * @description Value of the base beyond which `overcostCoeff` applies instead of `costCoeff`, in the base's own unit. The overcost rate is usually higher, and a value of 0 caps the cost.
+             * @example 100
+             */
             overcostFloor?: number;
             /**
              * @description Cost per unit of the base exceeding `overcostFloor`, in currency unit per base unit.
@@ -1606,9 +1620,11 @@ export interface components {
             using?: number;
             /**
              * @description Additional cost floors and coefficients on the stops that carry a given tag, by stop tag. The base is the number of visited stops carrying that tag, and floors apply once to the tour total.
+             *
+             *     > **Modelling pitfall.** `constantCost` is paid once per tour that visits at least one stop of the tag, never once per stop. A tour with no stop of the tag pays nothing. An amount per stop goes in `costCoeff`.
              * @example {
              *       "warehouse": {
-             *         "constantCost": 5
+             *         "costCoeff": 5
              *       }
              *     }
              */
@@ -1618,7 +1634,7 @@ export interface components {
             /**
              * @description Additional cost floors and coefficients on the quantities handled at the tour's stops, by capacity name, further scoped to specific stop tags. Each stop adds the absolute value of its quantity, whatever its `kind` or sign, and floors apply once to the tour total.
              *
-             *     > **Modelling pitfall.** The base is the quantity handled, not the vehicle's load: loading at departure doesn't count, and a pickup and a delivery of the same 100 units count 200. It applies to any capacity the stops carry, declared on the resource or not, and a guaranteed minimum comes from `constantCost`, not `costFloor`.
+             *     > **Modelling pitfall.** The base is the quantity handled, not the vehicle's load: loading at departure doesn't count, and a pickup and a delivery of the same 100 units count 200. It applies to any capacity the stops carry, declared on the resource or not, and a tour that handles none of the capacity pays no `constantCost`. A minimum that must also hold on such a tour comes from `using`, because `costFloor` only delays `costCoeff`.
              * @example {
              *       "weight": {
              *         "stopTags": [
@@ -1784,6 +1800,8 @@ export interface components {
         /**
          * @description A warning has the same structure as an `Error`, but a different semantic. It is present when an accepted payload was amended — traffic turned off, crow-fly forced, `maxOptimizationDuration` clamped, and so on. The amended field and the applied change are described by `properties.path` and `properties.details`.
          *
+         *     A warning can also flag an accepted value that is probably a mistake, with no amendment: for example, a tag in the `costsByResourceTag` of a `maxCumulatedCost` constraint that no resource carries. `properties.path` then points to that value.
+         *
          *     Warnings can also accompany the errors of a rejected payload: they then describe the amendments applied before the rejecting error was found.
          *
          *     > **Modelling pitfall.** Warnings are only returned in the response to the `POST` or `PUT` that produced them. They aren't stored with the plan, so a later `GET` never returns them: read them from that response, since afterwards only the amended value remains visible.
@@ -1815,7 +1833,7 @@ export interface components {
             planId?: components["schemas"]["PlanId"];
             /** @description The business errors that occurred. A `400` on plan or resource creation can report several invalid fields at once. */
             errors?: components["schemas"]["Error"][];
-            /** @description Amendments applied to the payload before the preceding errors were found, if any. */
+            /** @description Amendments applied, and probable mistakes found, in the payload before the preceding errors were found, if any. */
             warnings?: components["schemas"]["Warning"][];
         };
         /**
@@ -1926,7 +1944,7 @@ export interface components {
             agencyId?: components["schemas"]["AgencyId"];
             planId?: components["schemas"]["PlanId"];
             planVersion?: components["schemas"]["PlanVersion"];
-            /** @description Amendments applied while processing this request, if any. */
+            /** @description Amendments applied, and probable mistakes found, while processing this request, if any. */
             warnings?: components["schemas"]["Warning"][];
         };
         /** @description Achieved value of one objective from `Plan.objectives`. */
@@ -1942,7 +1960,15 @@ export interface components {
             priority?: number;
             /** @description Whether this objective's value was minimized or maximized. */
             direction?: components["schemas"]["OptimizationDirection"];
-            /** @description Achieved value of the objective for this solution. */
+            /**
+             * @description Achieved value of the objective for this solution, in the objective's own unit. The value is not rounded.
+             *
+             *     - Hours, as a decimal number (`1.25` is 1 h 15 min): `minimizeDelay`, `minimizeWorkingDuration`, `minimizeLargestTourDuration`.
+             *     - Kilometres: `minimizeDistance`.
+             *     - The currency of your `cost` coefficients, with no conversion: `minimizeCosts`.
+             *     - The unit of its own coefficients: a `custom` objective.
+             *     - A count, with no unit: `maximizeMandatoryStops`, `maximizeOptionalStops`, `maximizePreferredStops`, `minimizeResources`, `minimizeOverOverlappingCapacitiesOnStops`, `minimizeEarlyLoadings`.
+             */
             value?: number;
         };
         /** @description A page of achieved objective values, as returned by the objectives-listing endpoint. */
@@ -1952,7 +1978,7 @@ export interface components {
             agencyId?: components["schemas"]["AgencyId"];
             planId?: components["schemas"]["PlanId"];
             planVersion?: components["schemas"]["PlanVersion"];
-            /** @description Amendments applied while processing this request, if any. */
+            /** @description Amendments applied, and probable mistakes found, while processing this request, if any. */
             warnings?: components["schemas"]["Warning"][];
         };
         /** @description One resource's planned sequence of waypoints (begin, stops, breaks, end) in a solution, together with its aggregate costs, durations, and constraint violations. */
