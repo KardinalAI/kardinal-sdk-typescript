@@ -12,12 +12,14 @@
  * validated below with the same rules as the Python SDK (id pattern, ISO
  * 8601 duration pattern, integers, required fields), and so is each
  * resource's vehicle profile, against the variant its `type` selects. The
- * nested objects of the rarer fields (`cost`, `breaks` on a resource;
- * `additionalConstraints`, `globalConstraints`, `objectives` and
- * the other `*ByResourceTag`/`*ByStopTag` maps on a plan) are typed for
- * compile-time safety via the generated schema types, but not deeply
- * validated at runtime — a malformed value there fails server-side (400),
- * not locally.
+ * rarer fields, declared below with `z.custom<unknown>()`, are not checked
+ * at runtime: a malformed value there fails server-side (400), not
+ * locally. On a resource (`cost`, `breaks` and so on), the compiler still
+ * checks them, because `resourceSchema` is cast to the generated
+ * `Resource` type. On a plan (`additionalConstraints`, `globalConstraints`,
+ * `objectives`, `setupDurations` and so on), `PlanCreateInput` types them
+ * as `unknown`, so the compiler doesn't check them either. A plan read
+ * back (`Plan`) types them all from the generated schema types.
  */
 
 import { z } from "zod";
