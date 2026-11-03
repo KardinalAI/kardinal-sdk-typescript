@@ -126,3 +126,29 @@ describe("parcelExpressPlan", () => {
     }
   });
 });
+
+describe("plans do not share objects between their resources and stops", () => {
+  it("coldChainPlan: editing one resource's tags or departure leaves the others alone", () => {
+    const plan = coldChainPlan();
+    const [truck, driver1, driver2] = plan.resources as any[];
+    const firstPickup = plan.orders![0].stops[0] as any;
+    const before = JSON.stringify(plan);
+    truck.tags.push("vip");
+    truck.departure.lat = 0;
+    expect(driver1.tags).toEqual(["driver", "bi-temperature"]);
+    expect(driver2.tags).toEqual(["driver", "bi-temperature"]);
+    expect(truck.arrival.lat).not.toBe(0);
+    expect(driver2.departure.lat).not.toBe(0);
+    expect(firstPickup.position.lat).not.toBe(0);
+    expect(JSON.stringify(plan)).not.toBe(before);
+  });
+
+  it("parcelExpressPlan: editing one resource's departure leaves the others alone", () => {
+    const plan = parcelExpressPlan();
+    const [van1, van2] = plan.resources as any[];
+    van1.departure.lat = 0;
+    expect(van1.arrival.lat).not.toBe(0);
+    expect(van2.departure.lat).not.toBe(0);
+    expect(van2.arrival.lat).not.toBe(0);
+  });
+});
