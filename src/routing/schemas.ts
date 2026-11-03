@@ -237,7 +237,13 @@ const resourceSchema = z.object({
   travelTimeCoefficient: z.number().optional(),
   emptyThresholdByCapacity: capacitiesSchema.optional(),
   avoidEarlyLoadings: z.array(z.custom<unknown>()).optional(),
-}).passthrough() as unknown as z.ZodType<Resource>;
+}).passthrough() as unknown as z.ZodType<
+  Resource,
+  z.ZodTypeDef,
+  // The generated type makes every field with a default mandatory, which is
+  // right for what the SDK returns but not for what you submit.
+  Omit<Resource, "priority"> & { priority?: number }
+>;
 
 // --- PlanCreate -----------------------------------------------------------
 
