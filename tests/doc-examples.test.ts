@@ -39,6 +39,7 @@ const PRELUDE: Record<string, string> = {
 const PRELUDE_IMPORTS: Record<string, string[]> = { "sdks__errors-and-warnings": ["Kardinal", "examples"] };
 const EXPORTS: Record<string, string[]> = {
   "sdks__configuration": ["k"],
+  "sdks__building-plans": ["created"],
   "guides__breaks": ["plan"],
   "guides__capacities": ["plan"],
   "guides__orders-and-sequences": ["plan"],
@@ -217,8 +218,8 @@ const EXPECTED: Record<string, () => Promise<void>> = {
     expect(mod.k).toBeInstanceOf(Kardinal);
   },
   "sdks__building-plans": async () => {
-    const { printed, api } = await runPage("sdks__building-plans");
-    expect(api.plan!.id).toBe(PLAN_ID); // `created.id`
+    const { mod, printed, api } = await runPage("sdks__building-plans");
+    expect(mod.created.id).toBe(PLAN_ID);
     expect(api.plan!.orders.length).toBeGreaterThan(0);
     expect(printed).toEqual([]); // unknownFields printed nothing
   },
