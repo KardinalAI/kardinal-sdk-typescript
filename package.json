@@ -43,7 +43,8 @@
     "generate:types": "bash scripts/generate-types.sh",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check:spec": "node scripts/check-spec-matches-mintlify.mjs"
+    "check:spec": "node scripts/check-spec-matches-mintlify.mjs",
+    "sync:doc-examples": "node scripts/sync-doc-examples.mjs"
   },
   "dependencies": {
     "zod": "^3.23.8"
