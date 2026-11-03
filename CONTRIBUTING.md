@@ -123,7 +123,9 @@ npm run sync:doc-examples -- --check # exit 1 if the copy differs
 
 Like `check:spec`, it reads the docs repository from `../mintlify`, or
 `MINTLIFY_REPO_PATH`, at `origin/main`, or `MINTLIFY_REF`, without checking
-anything out. Run it with `--check` before each release. The test only
+anything out. Run `git -C <docs repository> fetch` first, since the check
+reads the local copy of `origin/main` and passes falsely when it is stale,
+then run it with `--check` before each release. The test only
 guards the SDK against the examples as copied: an edit of a page in the
 docs repository is seen at the next sync, not before.
 
