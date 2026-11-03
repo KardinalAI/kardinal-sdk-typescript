@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import yaml from "js-yaml";
 import { server } from "./setup.js";
 import { emit, fail, main } from "../src/cli.js";
 import { KardinalLimitError, KardinalValidationError, examples } from "../src/index.js";
 import { SDK_VERSION } from "../src/core/version.js";
+import { typecheck } from "./typecheck.js";
 
 const BASE = "https://app.kardinal.ai/api/v2";
 const PLAN_ID = "4cbd0ab8-282c-4b30-b981-29e1ed8a2016";
@@ -70,17 +73,126 @@ describe("version, auth check, init", () => {
     expect(JSON.parse(stdout)).toEqual({ valid: true, baseUrl: BASE, agencyId: "BLD1234567_production" });
   });
 
-  it("init writes a skill pointer file", async () => {
-    const cwd = process.cwd();
-    process.chdir(dir);
-    try {
+  describe("init", () => {
+    const SKILL_PATH = [".claude", "skills", "kardinal-typescript", "SKILL.md"];
+    let cwd: string;
+
+    beforeEach(() => {
+      cwd = process.cwd();
+      process.chdir(dir);
+    });
+    afterEach(() => process.chdir(cwd));
+
+    const written = () => readFileSync(join(dir, ...SKILL_PATH), "utf-8");
+    const tsBlock = () => /^```ts\n([\s\S]*?)^```/m.exec(written())![1];
+
+    it("writes the skill under .claude/skills and no longer writes .kardinal/SKILL.md", async () => {
       expect(await cli("init")).toBe(0);
-      const written = join(dir, ".kardinal", "SKILL.md");
-      expect(existsSync(written)).toBe(true);
-      expect(readFileSync(written, "utf-8")).toContain("kardinal");
-    } finally {
-      process.chdir(cwd);
-    }
+      expect(existsSync(join(dir, ...SKILL_PATH))).toBe(true);
+      expect(existsSync(join(dir, ".kardinal", "SKILL.md"))).toBe(false);
+    });
+
+    it("starts with a YAML front matter holding exactly name and description, the name being the folder", async () => {
+      await cli("init");
+      const text = written();
+      expect(text.startsWith("---\n")).toBe(true);
+      const meta = yaml.load(text.split("---\n")[1]) as Record<string, string>;
+      expect(Object.keys(meta).sort()).toEqual(["description", "name"]);
+      expect(meta.name).toBe("kardinal-typescript");
+      expect(meta.name).toBe(SKILL_PATH[2]);
+      expect(meta.description.length).toBeGreaterThan(0);
+    });
+
+    it("cites the three pitfalls, the SDK version and the documentation links", async () => {
+      await cli("init");
+      const text = written();
+      for (const part of [
+        "5 seconds",
+        "maxOptimizationDuration",
+        "// sandbox value; in production, allow more than the plan's maxOptimizationDuration",
+        "about one minute",
+        "unaffectedStopIds",
+        "final state",
+        `(SDK ${SDK_VERSION})`,
+        "https://developers.kardinal.ai/llms.txt",
+        "https://developers.kardinal.ai/getting-started/agent-modeling-checklist",
+      ]) {
+        expect(text).toContain(part);
+      }
+    });
+
+    it("has a code block that type-checks", async () => {
+      await cli("init");
+      // typecheck.ts compiles without DOM types: declare the one global the block uses.
+      const console = "declare const console: { log(...args: unknown[]): void };\n";
+      expect(typecheck({ "skill.ts": console + tsBlock() + "\nexport {};\n" })).toEqual([]);
+    });
+
+    it("has a code block that runs against the API and lists the stops of a tour", async () => {
+      await cli("init");
+      const position = { latitude: 48.85, longitude: 2.35 };
+      server.use(
+        http.post(`${BASE}/plans`, () =>
+          HttpResponse.json({ item: { id: PLAN_ID, version: 1 }, warnings: [] }, { status: 201 })
+        ),
+        http.get(PLAN_URL, () => HttpResponse.json({ item: { id: PLAN_ID, version: 1 } })),
+        http.get(`${PLAN_URL}/state`, () => HttpResponse.json({ item: { state: "optimized", planVersion: 1 } })),
+        http.get(`${PLAN_URL}/solution`, () =>
+          HttpResponse.json({
+            item: {
+              planId: PLAN_ID,
+              planVersion: 1,
+              tours: [
+                {
+                  resourceId: "truck-1",
+                  wayPoints: [
+                    { type: "begin", position },
+                    { type: "stop", stopId: "s1", position },
+                    { type: "end", position },
+                  ],
+                },
+              ],
+            },
+          })
+        )
+      );
+      const sdkEntry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+      const source = tsBlock().replace('"@kardinal-ai/sdk"', JSON.stringify(sdkEntry));
+      const path = join(mkdtempSync(join(tmpdir(), "kardinal-skill-")), "skill-block.ts");
+      writeFileSync(path, source);
+      const printed: unknown[][] = [];
+      vi.spyOn(console, "log").mockImplementation((...args) => void printed.push(args));
+      let outcome: { error?: unknown } | null = null;
+      import(pathToFileURL(path).href).then(
+        () => (outcome = {}),
+        (error) => (outcome = { error })
+      );
+      while (outcome === null) await vi.advanceTimersByTimeAsync(1_000);
+      expect((outcome as { error?: unknown }).error).toBeUndefined();
+      expect(printed[0]).toEqual(["truck-1", ["s1"]]);
+    });
+
+    it("prints the absolute path and how to reload skills", async () => {
+      expect(await cli("init")).toBe(0);
+      expect(stdout).toContain(`Wrote ${realpathSync(join(dir, ...SKILL_PATH))}`);
+      expect(stdout).toContain("/reload-skills");
+      expect(stdout).not.toContain("can be deleted");
+    });
+
+    it("leaves an existing .kardinal/SKILL.md untouched and says it can be deleted", async () => {
+      mkdirSync(join(dir, ".kardinal"));
+      writeFileSync(join(dir, ".kardinal", "SKILL.md"), "old");
+      await cli("init");
+      expect(readFileSync(join(dir, ".kardinal", "SKILL.md"), "utf-8")).toBe("old");
+      expect(stdout).toContain(".kardinal/SKILL.md is no longer written by `kardinal init`: it can be deleted.");
+    });
+
+    it("gives the same content when run twice", async () => {
+      await cli("init");
+      const first = written();
+      await cli("init");
+      expect(written()).toBe(first);
+    });
   });
 });
 
