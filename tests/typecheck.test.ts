@@ -47,3 +47,11 @@ it("a resource without priority is still refused in a PlanCreate (the output typ
   const bad = `${RESOURCE_HEAD}export const plan: PlanCreate = { resources: [resource], lateDeparture: false, sharedCapacities: false };\n`;
   expect(typecheck({ "bad.ts": bad }).join("\n")).toMatch(/bad\.ts:\d+ .*priority/);
 });
+
+it("parsePlanCreate turns a case-study plan into fully typed resources", () => {
+  const good = `import { examples, parsePlanCreate } from "@kardinal-ai/sdk";
+import type { Resource } from "@kardinal-ai/sdk";
+export const rs: Resource[] = parsePlanCreate(examples.coldChainPlan()).resources;
+`;
+  expect(typecheck({ "good.ts": good })).toEqual([]);
+});

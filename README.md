@@ -40,6 +40,9 @@ For a larger, realistic plan, `examples.coldChainPlan()` and
 and [parcel express](https://developers.kardinal.ai/case-studies/parcel-express)
 case studies, as typed objects to adapt to your data. Their content follows
 the published pages and may change in any release.
+If your code works with `Resource` and `PlanCreate`, pass the plan through
+`parsePlanCreate()` (`import { parsePlanCreate } from "@kardinal-ai/sdk"`),
+which fills in every default.
 
 ## API reference
 
