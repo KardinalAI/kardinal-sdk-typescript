@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { coldChainPlan, smallDeliveryPlan } from "../src/routing/examples.js";
+import { coldChainPlan, parcelExpressPlan, smallDeliveryPlan } from "../src/routing/examples.js";
 import { parsePlanCreate } from "../src/routing/schemas.js";
 
 describe("smallDeliveryPlan", () => {
@@ -81,6 +81,43 @@ describe("coldChainPlan", () => {
     try {
       const nowSpy = vi.spyOn(Date, "now");
       const plan = coldChainPlan();
+      expect(nowSpy).toHaveBeenCalledTimes(1);
+      const dates = new Set(JSON.stringify(plan).match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/g)!.map((t) => t.slice(0, 10)));
+      expect([...dates]).toEqual(["2026-08-03"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("parcelExpressPlan", () => {
+  it("is the published payload of the parcel express case study, key for key", () => {
+    const plan = withClockAt("2026-08-02T12:00:00Z", parcelExpressPlan);
+    expect(plan).toStrictEqual(published("parcel-express"));
+  });
+
+  it("passes local validation with no unknown field allowed", () => {
+    expect(() => parsePlanCreate(parcelExpressPlan())).not.toThrow();
+  });
+
+  it("returns a fresh object on every call", () => {
+    const a = parcelExpressPlan();
+    const b = parcelExpressPlan();
+    expect(a).not.toBe(b);
+    expect(a.resources).not.toBe(b.resources);
+    expect(a.orders).not.toBe(b.orders);
+  });
+
+  it("has 10 stops, one credit each in production", () => {
+    const stops = parcelExpressPlan().orders!.flatMap((order) => order.stops);
+    expect(stops).toHaveLength(10);
+  });
+
+  it("reads the clock once, so a plan built across midnight keeps one date", () => {
+    vi.useFakeTimers({ now: new Date("2026-08-02T22:59:59.999Z") });
+    try {
+      const nowSpy = vi.spyOn(Date, "now");
+      const plan = parcelExpressPlan();
       expect(nowSpy).toHaveBeenCalledTimes(1);
       const dates = new Set(JSON.stringify(plan).match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/g)!.map((t) => t.slice(0, 10)));
       expect([...dates]).toEqual(["2026-08-03"]);

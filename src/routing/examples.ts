@@ -278,3 +278,154 @@ export function coldChainPlan(): PlanCreateInput {
     ] satisfies Schemas["GlobalConstraintMaxCumulatedCost"][],
   };
 }
+
+/**
+ * The plan of the parcel express case study, built field by field:
+ * https://developers.kardinal.ai/case-studies/parcel-express
+ *
+ * Two vans, one cargo bike and one walker deliver and collect parcels in
+ * Paris, from one depot, with a lunch break, a customer slot and zones.
+ * Dates move to tomorrow.
+ *
+ * Submitting it as is:
+ *
+ * - with a production key costs one credit per stop, so 10 credits here;
+ * - leaves `maxOptimizationDuration` unset, so production optimizes for up to
+ *   15 minutes and stops earlier once the result stops improving;
+ * - in the sandbox is free, and the answer carries warnings that traffic is
+ *   ignored and that routes are computed as the crow flies.
+ */
+export function parcelExpressPlan(): PlanCreateInput {
+  const at = atTomorrow();
+  const depot = { lon: 2.3522, lat: 48.8566 };
+
+  // 45 minutes, anywhere in the midday window.
+  const lunchBreak = () => ({
+    type: "timeWindowBreak" as const,
+    duration: "PT45M",
+    timeWindow: { begin: at("12:00"), end: at("14:00") },
+  });
+
+  // Same depot and same day for the whole fleet; the two counters cap each
+  // tour at 8 deliveries and 2 pickups.
+  const resource = (
+    id: string,
+    vehicleProfile: Schemas["Resource"]["vehicleProfile"],
+    capacities: Record<string, number>,
+    extra: Partial<Schemas["Resource"]> = {},
+  ) => ({
+    id,
+    vehicleProfile,
+    workingTimeWindow: { begin: at("07:00"), end: at("17:00") },
+    departure: depot,
+    arrival: depot,
+    capacities: { ...capacities, nbDeliveries: 8, nbPickups: 2 },
+    ...extra,
+  });
+
+  const resources: PlanCreateInput["resources"] = [
+    // First van: bigger load, a preferred sector and a lunch break.
+    resource(
+      "van-1",
+      { type: "car", withTraffic: true },
+      { parcels: 40, weight: 600, volume: 3.5, highValueParcels: 8 },
+      { preferredStopTags: ["zone:usual-sector-7"], breaks: [lunchBreak()] },
+    ),
+    resource("van-2", { type: "car", withTraffic: true }, { parcels: 40, weight: 600 }, { breaks: [lunchBreak()] }),
+    // The bike's and the walker's zone tags are plain labels: no stop and no
+    // constraint refers to them, so they restrict nothing. The engine picks
+    // which stops each profile serves.
+    resource("bike-1", { type: "bicycle" }, { parcels: 12, weight: 50 }, { tags: ["zone:dense-center"] }),
+    resource("walker-1", { type: "pedestrian" }, { parcels: 6, weight: 20 }, { tags: ["zone:pedestrian-only"] }),
+  ];
+
+  // Every stop is one parcel, counted in `parcels` and in its counter.
+  const single = (
+    id: string,
+    lon: number,
+    lat: number,
+    kind: "pickup" | "delivery",
+    operationDuration: string,
+    weight: number,
+    counter: "nbPickups" | "nbDeliveries",
+    extra: Partial<Schemas["SingleStop"]> = {},
+  ) => ({
+    type: "single" as const,
+    id,
+    position: { lon, lat },
+    kind,
+    operationDuration,
+    capacities: { parcels: 1, weight, [counter]: 1 },
+    ...extra,
+  });
+
+  const orders: NonNullable<PlanCreateInput["orders"]> = [
+    // A shop shipment: pickup then delivery, by the same tour, not
+    // necessarily back to back.
+    {
+      id: "order-paired-shipment",
+      stops: [
+        single("stop-pickup-shop", 2.3672, 48.8666, "pickup", "PT4M", 12, "nbPickups"),
+        single("stop-delivery-customer", 2.3322, 48.8646, "delivery", "PT3M", 12, "nbDeliveries"),
+      ],
+      successiveStops: false,
+    },
+    // A delivery with a customer slot: authorized all day, preferred in the
+    // afternoon.
+    {
+      id: "order-standard-delivery",
+      stops: [
+        single("stop-customer-1", 2.3622, 48.8386, "delivery", "PT8M", 150, "nbDeliveries", {
+          tags: ["zone:usual-sector-7", "customer-slot"],
+          authorizedTimeWindows: [{ begin: at("08:00"), end: at("18:00") }],
+          preferredTimeWindows: [{ begin: at("14:00"), end: at("16:00") }],
+        }),
+      ],
+    },
+    // A pickup point collection, at the same address as delivery 3.
+    {
+      id: "order-late-pickup",
+      stops: [single("stop-pudo-pickup", 2.3222, 48.8716, "pickup", "PT3M", 15, "nbPickups")],
+    },
+  ];
+
+  // Six standard deliveries: three in the preferred sector, three in the
+  // overflow zone.
+  [
+    { lon: 2.3622, lat: 48.8386, zone: "zone:usual-sector-7" },
+    { lon: 2.3402, lat: 48.8426, zone: "zone:usual-sector-7" },
+    { lon: 2.3772, lat: 48.8516, zone: "zone:usual-sector-7" },
+    { lon: 2.3222, lat: 48.8716, zone: "zone:overflow" },
+    { lon: 2.3572, lat: 48.8786, zone: "zone:overflow" },
+    { lon: 2.3442, lat: 48.8306, zone: "zone:overflow" },
+  ].forEach(({ lon, lat, zone }, i) => {
+    orders.push({
+      id: `order-delivery-${i}`,
+      stops: [single(`stop-delivery-${i}`, lon, lat, "delivery", "PT2M", 100, "nbDeliveries", { tags: [zone] })],
+    });
+  });
+
+  return {
+    tz: "Europe/Paris",
+    resources,
+    orders,
+    objectives: [
+      "maximizeMandatoryStops",
+      "minimizeResources",
+      "minimizeDelay",
+      "minimizeLargestTourDuration",
+      "maximizePreferredStops",
+      "minimizeDistance",
+      "minimizeWorkingDuration",
+    ] satisfies Schemas["ObjectivesEnum"][],
+    additionalConstraints: [
+      // At every stop of a tour, at least one of these three loads is at or
+      // under its threshold (an OR, not all three together).
+      {
+        type: "atLeastOneValidCapacity",
+        capacities: { nbDeliveries: 0, nbPickups: 0, weight: 300 },
+        name: "pudo-pickup-once-under-300kg",
+      },
+    ] satisfies Schemas["AdditionalConstraintAtLeastOneValidCapacity"][],
+  };
+}
