@@ -109,7 +109,7 @@ export interface paths {
          * Retrieve the latest state of a plan
          * @description Returns the latest state of a plan, as a single summary value (`waiting`, `processing`, `preOptimizing`, and so on — see `PlanState`). For the detailed per-stage breakdown (waiting room, creation, optimization, and, if predictive traffic is enabled, traffic fetching), see `PlanStatus` on the plan itself.
          *
-         *     `state` describes the latest version of the plan that `/state` knows about, not an earlier version you may still be waiting on. Just after a `PUT /plans/{planId}`, `/state` may not know the new version yet and can still describe the previous one, even as `optimized`. So read the `version` returned by your `PUT /plans/{planId}` (`item.version` in its response), and treat `optimized` as covering your changes only once `/state` reports a `planVersion` at least equal to that `version`. The check still works if the update changed nothing and the `version` stays the same. A restart with `PUT /plans/{planId}/running` keeps the same `version`, so this check can't tell the new run from the previous one. See [Polling the state and the solution](https://developers.kardinal.ai/concepts/how-the-optimization-engine-works#polling-the-state-and-the-solution).
+         *     `state` describes the latest version of the plan that `/state` knows about, not an earlier version you may still be waiting on. Just after a `PUT /plans/{planId}`, `/state` may not know the new version yet and can still describe the previous one, even as `optimized`. So read the `version` returned by your `PUT /plans/{planId}` (`item.version` in its response), and treat `optimized` as covering your changes only once `/state` reports a `planVersion` at least equal to that `version`. The check still works if the update changed nothing and the `version` stays the same. A restart with `PUT /plans/{planId}/running` keeps the same `version`, so this check can't tell the new run from the previous one. Just after a restart, `/state` can still show the previous run's `optimized`. It can also show the `interrupted` that the previous run sends a few seconds after it stops. So read the `timestamp` of `/state` just before you restart. Then treat `optimized` as the new run's result only once its `timestamp` is later than the one you read. Keep polling through an `interrupted` that comes in between. See [Polling the state and the solution](https://developers.kardinal.ai/concepts/how-the-optimization-engine-works#polling-the-state-and-the-solution).
          *
          *     > **Modelling pitfall.** The state outlives the plan for a while: after a `DELETE`, this endpoint can keep answering `200`. The state shows `deleted` only if the plan had finished optimizing; otherwise it moves to `stopped`, then `interrupted`. To know whether a plan still exists, call `GET /plans/{planId}` instead.
          */
@@ -543,7 +543,7 @@ export interface components {
          *     - optimized: This state can be triggered by one of the following events: no better solution can be produced, or the optimization period has reached its limit.
          *     - stopped: The plan's awaiting optimizations were cancelled.
          *     - deleted: The plan was deleted and awaiting optimizations were cancelled.
-         *     - interrupted: The plan was either updated, stopped, or deleted during its optimization.
+         *     - interrupted: The plan was either updated, stopped, restarted, or deleted during its optimization.
          * @enum {string}
          */
         PlanState: "waiting" | "processing" | "preOptimizing" | "preOptimized" | "optimizing" | "optimized" | "stopped" | "deleted" | "interrupted";
@@ -745,12 +745,12 @@ export interface components {
              */
             maxWorkingDuration?: components["schemas"]["Duration"];
             /**
-             * @description Maximum total distance the resource may travel over the plan, in kilometres. Constrains its service area.
+             * @description Maximum total distance the resource may travel over the plan, in kilometres. The distance is measured along the route the resource drives. In production, the route follows the roads.
              * @example 200
              */
             maxDistanceInKm?: number;
             /**
-             * @description Maximum distance between two consecutive stops on a tour, in kilometres. Either a scalar value applied uniformly to every travel of the tour, or a structured object with independent bounds per segment (`firstTravel`, `interStop`, `lastTravel`).
+             * @description Maximum distance between two consecutive stops on a tour, in kilometres, measured along the route. Either a scalar value applied uniformly to every travel of the tour, or a structured object with independent bounds per segment (`firstTravel`, `interStop`, `lastTravel`).
              *
              *     > **Default.** Each key of the structured form is independent; an absent key means no constraint on that segment, not a constraint set to zero.
              */
@@ -764,7 +764,7 @@ export interface components {
             /**
              * @description Breaks to schedule into this resource's tour; see `Break` for the three available kinds.
              *
-             *     > **Modelling pitfall.** Currently, the engine schedules a break only where the vehicle already stands, at the start of its tour or at a stop, never in the middle of a drive. A single drive longer than the allowed gap between two breaks makes that drive impossible for the vehicle. The engine leaves the stops that need it unplaced, returns no error, and no violation names the break. If every tour of the vehicle needs that drive, the vehicle is not used at all. See [Where a break can fall](https://developers.kardinal.ai/guides/advanced-constraints#where-a-break-can-fall).
+             *     > **Modelling pitfall.** Currently, the engine schedules a break only where the vehicle already stands, never in the middle of a drive. A `timeWindowBreak` can fall at the start of the tour. For a `timeWindowBreak`, a drive that covers the whole time the break could take place is impossible. The engine then leaves the stops that need that drive unplaced. It returns no error and no violation. A sliding break falls only after a stop, never at the start of the tour. For a `travelDurationSlidingBreak` or a `workingDurationSlidingBreak`, the engine allows a drive longer than `maxInterBreakDuration`. When the limit is already passed on arrival at a stop, it adds the missed breaks at that stop, if the tour goes on after it. Nothing catches up the last drive. The engine marks the tour valid and reports no violation. To keep a long drive within the rule, give the route a stop where the break can fall, then check the gaps in the solution. See [Where a break can fall](https://developers.kardinal.ai/guides/breaks#where-a-break-can-fall).
              */
             breaks?: components["schemas"]["Break"][];
             /** @description Policies excluding specific operation durations from this resource's tour; see `OperationDurationPolicy`. */
@@ -843,9 +843,11 @@ export interface components {
             /**
              * @description One or more hard time windows for the stop. Outside all of them, the stop cannot be planned at all. Accepts an array, so more than one disjoint hard window is native, for example a site open mornings and again in the evening; the stop is feasible if reachable in any one of them. Modelling an acceptable-if-late window as a hard one fails silently: the stop is simply dropped rather than delivered late.
              *
+             *     `begin` and `end` bound the start of service, which is the stop's `beginTime` in the solution. They don't bound the arrival. A resource that arrives before `begin` waits until `begin`. That wait counts in the tour's `waitingDuration`, not as a delay.
+             *
              *     > **Modelling pitfall.** A contractual delivery window is not automatically a hard one. Ask what should happen if the fleet cannot hit it: if a late visit is acceptable, use `preferredTimeWindows` instead.
              *
-             *     > **Modelling pitfall.** `begin`/`end` bound the resource's *arrival* at the stop, not when it finishes: the stop can complete up to `operationDuration` after `end`. To express "must be done and gone by 15:00", subtract `operationDuration` from `end` yourself (for a 15-minute operation, set `end` to `"2026-08-03 14:45"`); the API does not do this for you.
+             *     > **Modelling pitfall.** The stop can finish up to `operationDuration` after `end`. To express "must be done and gone by 15:00", subtract `operationDuration` from `end` yourself: for a 15-minute operation, set `end` to `"2026-08-03 14:45"`.
              * @example [
              *       {
              *         "begin": "2026-03-17T08:00:00+01:00",
@@ -855,7 +857,13 @@ export interface components {
              */
             authorizedTimeWindows?: components["schemas"]["TaggedTimeWindow"][];
             /**
-             * @description One or more soft time windows for the stop, reachable outside them at the cost of the `minimizeDelay` objective rather than being dropped.
+             * @description One or more soft time windows for the stop. A window is soft at its end only: a late start is allowed, and it costs the `minimizeDelay` objective. The delay is the start of service minus the window's `end`.
+             *
+             *     A preferred window is hard at its start. Service never starts before `begin`, and a resource that arrives early waits. A stop whose preferred windows all open after every resource stops working is therefore not planned.
+             *
+             *     When a preferred window closes before the authorized window opens, the stop is served inside the authorized window. The delay is still measured from the `end` of the preferred window. When a preferred window opens after the authorized window closes, the stop is not planned. When a preferred window sits inside a wider authorized window, service waits for the preferred window to open.
+             *
+             *     > **Modelling pitfall.** A preferred window doesn't make the stop reachable at any time. To express "deliver at 21:00 if possible, otherwise earlier", don't use a preferred window: it forbids starting before 21:00.
              * @example [
              *       {
              *         "begin": "2026-03-17T09:00:00+01:00",
@@ -865,7 +873,11 @@ export interface components {
              */
             preferredTimeWindows?: components["schemas"]["TaggedTimeWindow"][];
         };
-        /** @description A stop composed of different alternative single stops. */
+        /**
+         * @description A stop composed of different alternative single stops.
+         *
+         *     All alternatives of a group must have the same `kind`. A candidate without `kind` counts as a `delivery`. A group that mixes kinds is refused with a `400`.
+         */
         AlternativesStop: {
             /**
              * @description Alternatives-group ids must be unique within a plan.
@@ -924,7 +936,11 @@ export interface components {
              *     > **Default.** An order without `successiveStops` can have at most 4 stops; see [Limits and quotas](https://developers.kardinal.ai/reference/limits-and-quotas).
              */
             successiveStops?: boolean;
-            /** @description Maximum time allowed to elapse between the order's stops (for example between a pickup and its delivery), without forcing them to be consecutive. */
+            /**
+             * @description Maximum time allowed to elapse between the order's stops (for example between a pickup and its delivery), without forcing them to be consecutive.
+             *
+             *     The span runs from the end of service at the order's first stop to the start of service at its last stop. Waiting time counts.
+             */
             maxStopSpan?: components["schemas"]["Duration"];
         };
         /** @description Extra changeover duration inserted when a resource travels directly from a stop tagged `fromStopTag` to a stop tagged `toStopTag`. */
@@ -1192,7 +1208,13 @@ export interface components {
         Capacities: {
             [key: string]: number;
         };
-        /** @description `TimeWindow` plus an optional `resourceTags` array, used for `authorizedTimeWindows` / `preferredTimeWindows` on a stop. When `resourceTags` is set, that window only applies to resources carrying a matching tag (for example an early slot reserved for a certified subcontractor); resources without the tag only see the untagged windows. */
+        /**
+         * @description `TimeWindow` plus an optional `resourceTags` array, used for `authorizedTimeWindows` / `preferredTimeWindows` on a stop. When `resourceTags` is set, that window only applies to resources carrying a matching tag (for example an early slot reserved for a certified subcontractor); resources without the tag don't see this window. With several tags, a resource that carries any one of them may use the window.
+         *
+         *     The same rule applies on `preferredTimeWindows`. If a stop has only tagged preferred windows and no authorized window, a resource without the tag cannot serve the stop. If the stop also has an authorized window with no tag, that resource serves the stop there, with no delay.
+         *
+         *     On a stop, `begin` and `end` bound the start of service, not the arrival. A resource that arrives before `begin` waits until `begin`. For `preferredTimeWindows`, the delay is the time between `end` and the start of service.
+         */
         TaggedTimeWindow: {
             /** @description Start of the window. */
             begin: components["schemas"]["DateTime"];
@@ -1216,6 +1238,8 @@ export interface components {
         };
         /**
          * @description A resource's `breaks` array mixes any of the three types below; they are not mutually exclusive, and a break counts as working time unless its type says otherwise.
+         *
+         *     A `timeWindowBreak` is hard: the engine drops stops rather than skip the break. Currently, a tour that ends before the window opens has no break waypoint. A tour that keeps running past the end of the window gets a break waypoint. A tour that ends inside the window gets none when enough of the window remains after the tour ends, and the engine drops stops when too little remains. It isn't confirmed whether a wait at a stop counts as the break. A sliding break is not scheduled when the tour is shorter than `maxInterBreakDuration`.
          *
          *     > **Modelling pitfall.** The two sliding types (`workingDurationSlidingBreak`, `travelDurationSlidingBreak`) count the same physical break toward both their clocks. Define both together for a shift with a labor-time rule and a driving-time rule, rather than assuming one covers the other.
          *
@@ -1242,7 +1266,11 @@ export interface components {
              */
             timeWindow: components["schemas"]["TimeWindow"];
         };
-        /** @description Limitation rule on maximum cumulative driving time without any break. Triggered by cumulative driving time (`maxInterBreakDuration`), requiring a break of at least `minBreakDuration`. */
+        /**
+         * @description Limitation rule on maximum cumulative driving time without any break. Triggered by cumulative driving time (`maxInterBreakDuration`), requiring a break of at least `minBreakDuration`.
+         *
+         *     Currently, the engine can plan a drive longer than `maxInterBreakDuration`. See [Where a break can fall](https://developers.kardinal.ai/guides/breaks#where-a-break-can-fall).
+         */
         TravelDurationSlidingBreak: {
             /**
              * @description Discriminator identifying this break as `travelDurationSlidingBreak`. (enum property replaced by openapi-typescript)
@@ -1252,7 +1280,11 @@ export interface components {
             minBreakDuration: components["schemas"]["Duration"];
             maxInterBreakDuration: components["schemas"]["Duration"];
         };
-        /** @description Limitation rule on maximum cumulative working time without any break. Triggered by cumulative working time (`maxInterBreakDuration`), requiring a break of at least `minBreakDuration`. */
+        /**
+         * @description Limitation rule on maximum cumulative working time without any break. Triggered by cumulative working time (`maxInterBreakDuration`), requiring a break of at least `minBreakDuration`.
+         *
+         *     Currently, the engine can let the cumulative working time go over `maxInterBreakDuration`. See [Where a break can fall](https://developers.kardinal.ai/guides/breaks#where-a-break-can-fall).
+         */
         WorkingDurationSlidingBreak: {
             /**
              * @description Discriminator identifying this break as `workingDurationSlidingBreak`. (enum property replaced by openapi-typescript)
@@ -1732,9 +1764,13 @@ export interface components {
              */
             type: "break";
             status?: components["schemas"]["AssignmentStatus"];
-            /** @description Time the break starts. */
+            /** @description Time the break waypoint starts. It can be earlier than the break itself, for example when the waypoint includes a wait. */
             arrivalTime: components["schemas"]["DateTime"];
-            /** @description Time the break ends. */
+            /**
+             * @description Time the break ends.
+             *
+             *     > **Modelling pitfall.** `arrivalTime` and `departureTime` show where and when the engine placed the break. They do not show how long the break lasted, and the span can be longer than the break, for example when it includes a wait.
+             */
             departureTime: components["schemas"]["DateTime"];
         };
         /** @description Pins the end of a resource's tour to a fixed arrival time. */
@@ -1849,6 +1885,8 @@ export interface components {
             timestamp?: components["schemas"]["DateTime"];
             /**
              * @description Ids of standalone stops that could not be placed on any tour in this solution.
+             *
+             *     For an alternatives group that couldn't be placed, one candidate's id appears here and the others appear in `unaffectedAlternativeIds`.
              * @example [
              *       "stop2"
              *     ]
@@ -2018,7 +2056,7 @@ export interface components {
             totalDelay?: components["schemas"]["Duration"];
             /** @description Total time spent travelling between waypoints over the whole tour. */
             travelDuration?: components["schemas"]["Duration"];
-            /** @description Total time spent actively working (serving stops and breaks) over the whole tour. */
+            /** @description Whole time of the tour, from its departure to its end. It counts the drives, including the drives to and from the depot, the work at the stops, the breaks, and the waiting. The engine compares this value with the `maxWorkingDuration` of the resource. */
             workingDuration?: components["schemas"]["Duration"];
             /** @description Total time spent waiting, for example arriving before a stop's time window opens, over the whole tour. */
             waitingDuration?: components["schemas"]["Duration"];
@@ -2033,7 +2071,7 @@ export interface components {
             /**
              * @description Whether the tour satisfies every hard constraint on the resource.
              *
-             *     > **Modelling pitfall.** Reflects only hard-constraint satisfaction. A tour can have `isValid: true` while still carrying soft-constraint violations, such as missed preferred time windows reflected in `totalDelay`; check `violations` for the full picture rather than `isValid` alone.
+             *     > **Modelling pitfall.** Reflects only hard-constraint satisfaction. A tour can have `isValid: true` while still carrying soft-constraint violations, such as missed preferred time windows reflected in `totalDelay` and in the `delay` of each stop. These misses don't appear in `violations`, so read those two fields to see them.
              */
             isValid?: boolean;
             /** @description Constraint violations found on this tour. */
@@ -2161,7 +2199,7 @@ export interface components {
              */
             wayPointIndex?: number;
             /**
-             * @description The `authorizedTimeWindows` entry the stop's actual arrival falls outside of.
+             * @description The `authorizedTimeWindows` entry that the start of service at the stop falls outside of.
              * @example {
              *       "begin": "2026-03-17T08:00:00+01:00",
              *       "end": "2026-03-17T12:00:00+01:00"
@@ -2524,7 +2562,7 @@ export interface components {
             type: "break";
             /** @example optimized */
             status?: components["schemas"]["WayPointStatus"];
-            /** @description Time the break starts. */
+            /** @description Time the break waypoint starts. It can be earlier than the break itself, for example when the waypoint includes a wait. */
             arrivalTime?: components["schemas"]["DateTime"];
             /** @description Time the break ends. */
             departureTime?: components["schemas"]["DateTime"];
@@ -2571,7 +2609,11 @@ export interface components {
              */
             resourceTags?: (string & components["schemas"]["RegexIdValidation"])[];
         };
-        /** @description `additionalConstraints` scope. Bars a specific resource tag from a specific stop tag: a targeted exclusion, narrower than `incompatibleStopTags`. */
+        /**
+         * @description `additionalConstraints` scope. Bars a specific resource tag from a specific stop tag: a targeted exclusion, narrower than `incompatibleStopTags`.
+         *
+         *     > **Modelling pitfall.** Only resources that carry `resourceTag` are barred: a resource that you add later without the tag can serve the stop. For a rule that must hold when the fleet changes, use `requiredSkills` on the order and `skills` on the resources. See [Skills and assignments](https://developers.kardinal.ai/guides/skills-and-assignments#barring-one-resource-from-a-stop).
+         */
         AdditionalConstraintForbiddenAssignment: {
             /**
              * @description Discriminator identifying this constraint as `forbiddenAssignment`. (enum property replaced by openapi-typescript)
