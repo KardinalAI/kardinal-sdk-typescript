@@ -42,7 +42,8 @@ case studies, as typed objects to adapt to your data. Their content follows
 the published pages and may change in any release.
 If your code works with `Resource` and `PlanCreate`, pass the plan through
 `parsePlanCreate()` (`import { parsePlanCreate } from "@kardinal-ai/sdk"`),
-which fills in every default.
+which fills in the defaults those types require (`priority`,
+`lateDeparture` and `sharedCapacities`).
 
 ## API reference
 
