@@ -55,3 +55,15 @@ export const rs: Resource[] = parsePlanCreate(examples.coldChainPlan()).resource
 `;
   expect(typecheck({ "good.ts": good })).toEqual([]);
 });
+
+// The API reads and returns `strategy` on a last-in-first-out constraint and
+// its violation. Before the spec resync the type named it `removalStrategyType`,
+// so the field the API sends could not be read without a cast.
+it("a tour violation of the unloading order exposes strategy", () => {
+  const good = `import type { Solution } from "@kardinal-ai/sdk";
+declare const solution: Solution;
+const violation = solution.tours?.[0]?.violations?.[0];
+export const strategy: string | undefined = violation?.type === "removalStrategy" ? violation.strategy : undefined;
+`;
+  expect(typecheck({ "good.ts": good })).toEqual([]);
+});

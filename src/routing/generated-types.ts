@@ -730,7 +730,7 @@ export interface components {
             /**
              * @description Time window during which the resource is available to work. Often paired with `maxWorkingDuration`, since a wide window does not by itself mean a long shift.
              *
-             *     > **Modelling pitfall.** Spanning more than one calendar day does not, on its own, force any rest between working days. Encode daily rest explicitly in `breaks[]`, for example a `travelDurationSlidingBreak` sized for a full night's rest, or one `timeWindowBreak` per calendar day the plan spans.
+             *     > **Modelling pitfall.** Spanning more than one calendar day does not, on its own, force any rest between working days. Encode daily rest explicitly in `breaks[]`, for example one `timeWindowBreak` per night, with a window longer than the rest. See [Multi-day trips](https://developers.kardinal.ai/guides/multi-day).
              * @example {
              *       "begin": "2026-03-17T08:00:00+01:00",
              *       "end": "2026-03-17T18:00:00+01:00"
@@ -2486,7 +2486,8 @@ export interface components {
              * @example lifoRule1
              */
             name?: string;
-            removalStrategyType: components["schemas"]["RemovalStrategyType"];
+            /** @description The unloading order that the tour breaks. */
+            strategy: components["schemas"]["RemovalStrategyType"];
         };
         /**
          * @description Unloading order enforced by an `AdditionalConstraintRemovalStrategy`. `lifo` is currently the only supported strategy.
@@ -2736,7 +2737,7 @@ export interface components {
             [key: string]: number;
         };
         /**
-         * @description `additionalConstraints` scope. Enforces a last-in-first-out unloading order on a resource: with `removalStrategy: "lifo"`, a resource can only unload the last thing it loaded. Not a rule about which stops get dropped from an over-constrained plan.
+         * @description `additionalConstraints` scope. Enforces a last-in-first-out unloading order on a resource: with `strategy: "lifo"`, a resource can only unload the last thing it loaded. Not a rule about which stops get dropped from an over-constrained plan.
          *
          *     > **When to use.** For a stacked or sequential-loading vehicle, such as a car carrier loading vehicles nose-to-tail on a single deck, or a multi-deck cage truck, where physically nothing can be unloaded except the item that went on last. Set it on the resource tag or tags representing that vehicle class.
          */
@@ -2767,8 +2768,11 @@ export interface components {
              *     ]
              */
             capacities?: (string & components["schemas"]["RegexIdValidation"])[];
-            /** @example lifo */
-            removalStrategy?: string & components["schemas"]["RemovalStrategyType"];
+            /**
+             * @description The unloading order to enforce.
+             * @example lifo
+             */
+            strategy?: string & components["schemas"]["RemovalStrategyType"];
         };
         /** @description Pagination metadata attached to a paged list response. */
         Paging: {
