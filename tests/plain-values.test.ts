@@ -88,9 +88,15 @@ it("states, ids and versions have plain types in the editor", () => {
     const id: string | undefined = wp.stopId;
     const v: number | undefined = plan.version;
     const a: string | undefined = plan.agencyId;
-    if (state === "optimized") console.log(id, v, a);
+    const s: string = state;
+    if (state === "optimized") console.log(id, v, a, s);
 ${TAIL}`;
   expect(typecheck({ "good.ts": good })).toEqual([]);
+});
+
+it("the type check notices a state that is not a string (negative control)", () => {
+  const bad = `${HEAD}    const wrong: number = state;\n    console.log(wrong);\n${TAIL}`;
+  expect(typecheck({ "bad.ts": bad }).join("\n")).toMatch(/bad\.ts:\d+ .*not assignable to type 'number'/);
 });
 
 it("the type check notices a stop id that is not a string (negative control)", () => {

@@ -4,7 +4,7 @@
  * compiled (all pages in one program) and run, its blocks in order as one
  * module, against a mocked API, then its results are compared with EXPECTED.
  */
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -97,15 +97,13 @@ function asModule(page: string, sdk: string): string {
   return [...header, ...body, tail].join("\n");
 }
 
-type Requests = string[];
-
 /** A mocked API: echoes submitted plans back with an id and a version,
  * reports every plan as optimized with a one-tour solution, and keeps the
  * order of the GETs it serves. */
 function fakeApi() {
   const api = {
     plan: null as Record<string, any> | null,
-    requests: [] as Requests,
+    requests: [] as string[],
     deleted: false,
   };
   const log = (name: string) => api.requests.push(name);
@@ -187,6 +185,7 @@ async function runPage(page: string) {
     return { mod: (outcome as { module: Record<string, any> }).module, printed, api };
   } finally {
     process.chdir(cwd);
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
