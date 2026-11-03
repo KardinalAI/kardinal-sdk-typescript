@@ -34,6 +34,13 @@ waiting or being processed, then returns whatever the engine has found so
 far, which can be empty or incomplete until the optimization is over.
 `wait` returns once it is.
 
+For a larger, realistic plan, `examples.coldChainPlan()` and
+`examples.parcelExpressPlan()` return the plans of the
+[cold-chain](https://developers.kardinal.ai/case-studies/cold-chain-last-mile)
+and [parcel express](https://developers.kardinal.ai/case-studies/parcel-express)
+case studies, as typed objects to adapt to your data. Their content follows
+the published pages and may change in any release.
+
 ## API reference
 
 All methods hang off the client: `const k = new Kardinal()`. Every one of

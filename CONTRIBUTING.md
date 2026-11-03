@@ -129,6 +129,18 @@ then run it with `--check` before each release. The test only
 guards the SDK against the examples as copied: an edit of a page in the
 docs repository is seen at the next sync, not before.
 
+The same script also copies the "Full payload" block of each case-study
+page (`case-studies/cold-chain-last-mile.mdx` and
+`case-studies/parcel-express.mdx`) into `tests/case-studies/`, selected by
+the title of its accordion, and `--check` covers that folder too: run it
+before each release. `tests/examples.test.ts` compares
+`examples.coldChainPlan()` and `examples.parcelExpressPlan()` with these
+copies.
+
+What stays stable about those two functions is their names and their
+`PlanCreateInput` return type. Their content follows the published page and
+may change in any release; the Python SDK follows the same rule.
+
 ### Code generation notes
 
 - `openapi-typescript` has different codegen defects than the Python SDK's
@@ -171,6 +183,10 @@ each stack:
 - `update()`'s warning on a likely typo goes to `onWarning` (default
   `console.warn`); the Python SDK raises an `UnknownFieldWarning` through
   `warnings`.
+- Case-study plans: `examples.coldChainPlan()` and
+  `examples.parcelExpressPlan()` return `PlanCreateInput`, so they equal the
+  published payload key for key; the Python functions return `PlanCreate`
+  and leave the defaults unset.
 - Timeout: `timeoutMs` covers the whole request, response included;
   `httpx` applies the Python SDK's `timeout` to each phase separately.
 - Validation messages (`plans validate`): the wording of pattern, missing

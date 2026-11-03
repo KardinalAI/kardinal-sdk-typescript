@@ -3,6 +3,15 @@
  * a JSON fixture) so that reading the example is the first lesson in
  * modelling this API — a function, not a module constant, so every call
  * returns a fresh object the caller can modify freely.
+ *
+ * What stays stable about `coldChainPlan()` and `parcelExpressPlan()` is
+ * their names and their `PlanCreateInput` return type. Their content
+ * follows the published case-study pages and may change in any release.
+ * They return the input type, not `PlanCreate`, because the pages leave out
+ * the fields that have a default (`priority`, `lateDeparture`,
+ * `sharedCapacities`), and the input type is the one `submit()` takes. The
+ * constraints and objectives are checked against the generated types where
+ * they are written, but the compiler does not catch every typo in them.
  */
 
 import type { components } from "./generated-types.js";
