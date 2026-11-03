@@ -19,7 +19,7 @@
 // Run `--check` before each release, like the spec check.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -179,8 +179,9 @@ function main() {
   }
 }
 
-// Importing this file (the test does, for fullPayload) must not run it.
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Importing this file (the test does, for fullPayload) must not run it. Node
+// resolves symlinks in import.meta.url but not in argv[1], so compare real paths.
+if (realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     main();
   } catch (error) {

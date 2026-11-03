@@ -43,6 +43,13 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+/** Tomorrow's date at +01:00, as "YYYY-MM-DD". */
+function tomorrowDay(): string {
+  // Shifted by the offset, so the UTC getters below read the +01:00 date.
+  const tomorrow = new Date(Date.now() + DEMO_UTC_OFFSET_MS + 24 * 60 * 60 * 1000);
+  return `${tomorrow.getUTCFullYear()}-${pad(tomorrow.getUTCMonth() + 1)}-${pad(tomorrow.getUTCDate())}`;
+}
+
 /**
  * Computed fresh on every call, not a fixed calendar date: this example is
  * meant to stay submittable indefinitely, and a resource whose
@@ -50,14 +57,10 @@ function pad(n: number): string {
  * optimize.
  */
 function tomorrowsWorkingWindow(): { begin: string; end: string } {
-  // Shifted by the offset, so the UTC getters below read the +01:00 date.
-  const tomorrow = new Date(Date.now() + DEMO_UTC_OFFSET_MS + 24 * 60 * 60 * 1000);
-  const y = tomorrow.getUTCFullYear();
-  const m = pad(tomorrow.getUTCMonth() + 1);
-  const d = pad(tomorrow.getUTCDate());
+  const day = tomorrowDay();
   return {
-    begin: `${y}-${m}-${d}T08:00:00${DEMO_UTC_OFFSET}`,
-    end: `${y}-${m}-${d}T18:00:00${DEMO_UTC_OFFSET}`,
+    begin: `${day}T08:00:00${DEMO_UTC_OFFSET}`,
+    end: `${day}T18:00:00${DEMO_UTC_OFFSET}`,
   };
 }
 
@@ -67,8 +70,7 @@ function tomorrowsWorkingWindow(): { begin: string; end: string } {
  * mixes two dates.
  */
 function atTomorrow(): (hhmm: string) => string {
-  const tomorrow = new Date(Date.now() + DEMO_UTC_OFFSET_MS + 24 * 60 * 60 * 1000);
-  const day = `${tomorrow.getUTCFullYear()}-${pad(tomorrow.getUTCMonth() + 1)}-${pad(tomorrow.getUTCDate())}`;
+  const day = tomorrowDay();
   return (hhmm) => `${day} ${hhmm}`;
 }
 
@@ -173,8 +175,9 @@ export function coldChainPlan(): PlanCreateInput {
     capacities,
   });
 
-  // Compartments: each order loads the capacity named for its own
-  // temperature need, in the pickup and the delivery alike.
+  // Compartments: each order loads the capacity of its own
+  // temperature need, in the pickup and the delivery alike (chilled goods
+  // share the frozen compartment).
   const orders: NonNullable<PlanCreateInput["orders"]> = [
     { name: "ambient", capacity: "ambiant", quantity: 40, lon: 2.31, lat: 48.882 },
     { name: "chilled", capacity: "frozen", quantity: 30, lon: 2.275, lat: 48.88 },
