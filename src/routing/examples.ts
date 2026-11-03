@@ -5,8 +5,11 @@
  * returns a fresh object the caller can modify freely.
  */
 
-import type { PlanCreate } from "./schemas.js";
+import type { components } from "./generated-types.js";
+import type { PlanCreate, PlanCreateInput } from "./schemas.js";
 import type { Resource } from "./types.js";
+
+type Schemas = components["schemas"];
 
 // Fixed +01:00, not a real IANA timezone library: the exact DST offset
 // doesn't matter for a demo working window with hours of margin either
@@ -50,6 +53,17 @@ function tomorrowsWorkingWindow(): { begin: string; end: string } {
 }
 
 /**
+ * The payloads write local wall-clock times, "YYYY-MM-DD HH:MM", read in the
+ * plan's `tz`. The day is read once, so a plan built across midnight never
+ * mixes two dates.
+ */
+function atTomorrow(): (hhmm: string) => string {
+  const tomorrow = new Date(Date.now() + DEMO_UTC_OFFSET_MS + 24 * 60 * 60 * 1000);
+  const day = `${tomorrow.getUTCFullYear()}-${pad(tomorrow.getUTCMonth() + 1)}-${pad(tomorrow.getUTCDate())}`;
+  return (hhmm) => `${day} ${hhmm}`;
+}
+
+/**
  * Two resources, eight stops, a ten-second optimization budget — enough to
  * pose a real routing decision, small enough to return quickly and cost
  * only a few credits. Copy and adapt this rather than building a plan from
@@ -88,5 +102,179 @@ export function smallDeliveryPlan(): PlanCreate {
     orders,
     lateDeparture: false,
     sharedCapacities: false,
+  };
+}
+
+/**
+ * The plan of the cold-chain last-mile case study, built field by field:
+ * https://developers.kardinal.ai/case-studies/cold-chain-last-mile
+ *
+ * One bi-temperature truck driver plus two extra drivers deliver ambient,
+ * chilled and frozen goods in Paris, from one depot. Dates move to tomorrow.
+ *
+ * Submitting it as is:
+ *
+ * - with a production key costs one credit per stop, so 15 credits here;
+ * - leaves `maxOptimizationDuration` unset, so production optimizes for up to
+ *   15 minutes and stops earlier once the result stops improving;
+ * - in the sandbox is free, and the answer carries warnings that traffic is
+ *   ignored and that routes are computed as the crow flies.
+ */
+export function coldChainPlan(): PlanCreateInput {
+  const at = atTomorrow();
+  const depot = { lon: 2.295, lat: 48.872 };
+  // Driver tags: `driver` counts toward the one-driver-per-key-set limit,
+  // `bi-temperature` selects the ambient/frozen compartment constraint.
+  const driverTags = ["driver", "bi-temperature"];
+
+  const resources: PlanCreateInput["resources"] = [
+    // Truck with a worked-hours cost, a break rule and a preferred sector.
+    {
+      id: "truck-1",
+      vehicleProfile: { type: "truck", withTraffic: true },
+      workingTimeWindow: { begin: at("05:00"), end: at("20:00") },
+      departure: depot,
+      arrival: depot,
+      capacities: { weight: 1200, pallets: 12, ambiant: 400, frozen: 250 },
+      preferredStopTags: ["zone:usual-sector-7"],
+      tags: driverTags,
+      breaks: [{ type: "workingDurationSlidingBreak", minBreakDuration: "PT30M", maxInterBreakDuration: "PT6H" }],
+      maxWorkingDuration: "PT9H",
+      cost: { workedHours: { costFloor: 8, costCoeff: 1, overcostFloor: 10, overcostCoeff: 1.25 } },
+    },
+    // Two drivers with the two compartments only, on a shorter day.
+    ...[1, 2].map((i) => ({
+      id: `driver-${i}`,
+      vehicleProfile: { type: "truck" as const },
+      workingTimeWindow: { begin: at("07:00"), end: at("17:00") },
+      departure: depot,
+      arrival: depot,
+      capacities: { ambiant: 400, frozen: 250 },
+      tags: driverTags,
+    })),
+  ];
+
+  // Every temperature-controlled or pallet delivery starts at the depot.
+  const pickup = (id: string, capacities: Record<string, number>) => ({
+    type: "single" as const,
+    id,
+    position: depot,
+    kind: "pickup" as const,
+    operationDuration: "PT5M",
+    capacities,
+  });
+
+  // Compartments: each order loads the capacity named for its own
+  // temperature need, in the pickup and the delivery alike.
+  const orders: NonNullable<PlanCreateInput["orders"]> = [
+    { name: "ambient", capacity: "ambiant", quantity: 40, lon: 2.31, lat: 48.882 },
+    { name: "chilled", capacity: "frozen", quantity: 30, lon: 2.275, lat: 48.88 },
+    { name: "frozen", capacity: "frozen", quantity: 20, lon: 2.305, lat: 48.854 },
+  ].map(({ name, capacity, quantity, lon, lat }) => ({
+    id: `order-${name}`,
+    stops: [
+      pickup(`stop-pickup-${name}`, { [capacity]: quantity }),
+      {
+        type: "single" as const,
+        id: `stop-${name}`,
+        position: { lon, lat },
+        kind: "delivery" as const,
+        operationDuration: "PT6M",
+        capacities: { [capacity]: quantity },
+      },
+    ],
+  }));
+
+  // Afternoon pallets: the first one has a window and a preferred slot, in
+  // the truck's preferred sector; the third is outside it, in an overflow zone.
+  [
+    { lon: 2.32, lat: 48.867, zone: "zone:usual-sector-7" },
+    { lon: 2.265, lat: 48.887, zone: "zone:usual-sector-7" },
+    { lon: 2.3, lat: 48.894, zone: "zone:overflow" },
+  ].forEach(({ lon, lat, zone }, i) => {
+    orders.push({
+      id: `order-afternoon-${i}`,
+      stops: [
+        pickup(`stop-pickup-afternoon-${i}`, { pallets: 1 }),
+        {
+          type: "single" as const,
+          id: `stop-afternoon-${i}`,
+          position: { lon, lat },
+          kind: "delivery" as const,
+          operationDuration: "PT8M",
+          capacities: { pallets: 1 },
+          tags: [zone],
+          ...(i === 0 && {
+            authorizedTimeWindows: [{ begin: at("08:00"), end: at("18:00") }],
+            preferredTimeWindows: [{ begin: at("14:00"), end: at("16:00") }],
+          }),
+        },
+      ],
+    });
+  });
+
+  // Keychain: three early deliveries share one set of keys, which only one
+  // driver may hold (see the global constraint below).
+  [
+    { lon: 2.31, lat: 48.882 },
+    { lon: 2.275, lat: 48.88 },
+    { lon: 2.305, lat: 48.854 },
+  ].forEach((position, i) => {
+    orders.push({
+      id: `order-keychain-${i}`,
+      stops: [
+        {
+          type: "single" as const,
+          id: `stop-keychain-${i}`,
+          position,
+          kind: "delivery" as const,
+          operationDuration: "PT5M",
+          tags: ["keychain:trusted-set-1"],
+          authorizedTimeWindows: [{ begin: at("06:30"), end: at("08:00") }],
+        },
+      ],
+    });
+  });
+
+  return {
+    tz: "Europe/Paris",
+    resources,
+    orders,
+    objectives: [
+      "maximizeMandatoryStops",
+      "minimizeResources",
+      "minimizeLargestTourDuration",
+      "minimizeCosts",
+      "maximizePreferredStops",
+      "minimizeDelay",
+      "minimizeWorkingDuration",
+      "minimizeDistance",
+    ] satisfies Schemas["ObjectivesEnum"][],
+    additionalConstraints: [
+      // A bi-temperature vehicle carries ambient or frozen goods at a time,
+      // never both: one of the two loads must be 0.
+      {
+        type: "atLeastOneValidCapacity",
+        capacities: { frozen: 0, ambiant: 0 },
+        name: "bi-temperature-single-mode-at-a-time",
+        resourceTags: ["bi-temperature"],
+      },
+    ] satisfies Schemas["AdditionalConstraintAtLeastOneValidCapacity"][],
+    globalConstraints: [
+      // One driver per key set: each driver is charged for the keychain stops
+      // it serves, and the cap keeps that to one driver.
+      {
+        type: "maxCumulatedCost",
+        maximum: 1,
+        costsByResourceTag: {
+          driver: {
+            costsByStopTag: {
+              "keychain:trusted-set-1": { costFloor: 0, costCoeff: 1, overcostFloor: 1, overcostCoeff: 0 },
+            },
+          },
+        },
+        name: "one-driver-per-key-set",
+      },
+    ] satisfies Schemas["GlobalConstraintMaxCumulatedCost"][],
   };
 }
