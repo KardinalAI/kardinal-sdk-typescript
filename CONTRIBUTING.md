@@ -43,6 +43,13 @@ GitHub mirror, with Trusted Publishing: no API token is stored anywhere.
 The workflow only stages the package; a maintainer approves it before it
 goes live.
 
+Before step 1, with the docs repository at hand, run
+`npm run sync:doc-examples -- --check` and `npm run check:spec`: both
+must pass. Prepare the changelog merge request in the docs repository
+(`sdks/typescript/changelog.mdx` and the TypeScript row of
+`sdks/overview.mdx`) before the tag, and merge it once the npm approval
+is done, with the release date set that day.
+
 1. Open a merge request that sets the new `version` in `package.json`
    (`npm version X.Y.Z --no-git-tag-version` updates `package-lock.json`
    too), and merge it.
@@ -101,6 +108,25 @@ Never hand-edit `src/routing/generated-types.ts`: it's overwritten on
 every regeneration. Notes on the generated types that the hand-written
 layer needs (not the API itself) live in `src/routing/schemas.ts`.
 
+### Doc examples
+
+The TypeScript examples of the SDK pages and guides of the Kardinal API
+docs are copied into `tests/doc-examples/`, and `tests/doc-examples.test.ts`
+compiles them against the SDK sources (with the TypeScript version of the
+lockfile) and runs them against a mocked API. A change to the SDK that
+breaks a published example fails that test.
+
+```bash
+npm run sync:doc-examples            # rewrite tests/doc-examples/
+npm run sync:doc-examples -- --check # exit 1 if the copy differs
+```
+
+Like `check:spec`, it reads the docs repository from `../mintlify`, or
+`MINTLIFY_REPO_PATH`, at `origin/main`, or `MINTLIFY_REF`, without checking
+anything out. Run it with `--check` before each release. The test only
+guards the SDK against the examples as copied: an edit of a page in the
+docs repository is seen at the next sync, not before.
+
 ### Code generation notes
 
 - `openapi-typescript` has different codegen defects than the Python SDK's
@@ -150,6 +176,10 @@ each stack:
   here and from pydantic there.
 - There's no `close()`: `fetch` has no connection pool of the SDK's own.
 - Pre-releases: the npm `next` dist-tag here, TestPyPI there.
+- Version numbers are independent (since Python 2.0.0 the two no longer
+  move together).
+- Doc examples: the test here also compiles the examples, not only runs
+  them.
 
 ### What we don't want
 
