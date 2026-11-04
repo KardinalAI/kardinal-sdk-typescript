@@ -93,7 +93,7 @@ describe("solutions.wait", () => {
     expect(value!.planId).toBe(PLAN_ID);
     expect(value!.finalState).toBe("optimized");
     expect(elapsed()).toBe(20);
-    expect(states.calls).toBe(2);
+    expect(states.calls).toBe(3); // once at t=0, then at 10s and 20s
     expect(solutionCalls.calls).toBe(1);
   });
 
@@ -104,6 +104,64 @@ describe("solutions.wait", () => {
     mockStates([[0, "optimized", 1]]);
     mockSolution();
     await settle(client().routing.solutions.wait(PLAN_ID));
+    expect(elapsed()).toBe(10);
+  });
+
+  it("after start(), does not return the previous run's `optimized`", async () => {
+    // Right after start(), /state can still show the previous run's
+    // `optimized`. The read at t=0 only records it.
+    mockPlan();
+    mockStates([
+      [0, "optimized", 1],
+      [0.5, "processing", 1],
+      [12, "optimizing", 1],
+      [25, "optimized", 1],
+    ]);
+    mockSolution();
+    const { value } = await settle(client().routing.solutions.wait(PLAN_ID));
+    expect(value!.finalState).toBe("optimized");
+    expect(elapsed()).toBe(30);
+  });
+
+  it("after start(), skips the previous run's late `interrupted`", async () => {
+    // A restart during `optimizing`, as seen in production on 2026-11-04:
+    // `processing` at once, the old run's `interrupted` about 1s later, the
+    // new run's `optimizing` up to 14s after the restart.
+    mockPlan();
+    mockStates([
+      [0, "processing", 1],
+      [1, "interrupted", 1],
+      [12, "optimizing", 1],
+      [65, "optimized", 1],
+    ]);
+    mockSolution();
+    const { value } = await settle(client().routing.solutions.wait(PLAN_ID));
+    expect(value!.finalState).toBe("optimized");
+    expect(elapsed()).toBe(70);
+  });
+
+  it("returns a leftover `interrupted` after a minute without a new run", async () => {
+    mockPlan();
+    mockStates([
+      [0, "processing", 1],
+      [1, "interrupted", 1],
+    ]);
+    mockSolution();
+    const { value } = await settle(client().routing.solutions.wait(PLAN_ID));
+    expect(value!.finalState).toBe("interrupted");
+    expect(elapsed()).toBeGreaterThanOrEqual(70);
+    expect(elapsed()).toBeLessThanOrEqual(80);
+  });
+
+  it("returns `interrupted` at once when it follows `optimizing`", async () => {
+    mockPlan();
+    mockStates([
+      [0, "optimizing", 1],
+      [5, "interrupted", 1],
+    ]);
+    mockSolution();
+    const { value } = await settle(client().routing.solutions.wait(PLAN_ID));
+    expect(value!.finalState).toBe("interrupted");
     expect(elapsed()).toBe(10);
   });
 
@@ -271,7 +329,7 @@ describe("solutions.wait", () => {
     mockSolution();
     const { value } = await settle(client().routing.solutions.wait(PLAN_ID, 3_000));
     expect(value!.finalState).toBe("optimized");
-    expect(states.calls).toBe(1);
+    expect(states.calls).toBe(2); // the read at t=0 never returns
     expect(elapsed()).toBe(3);
   });
 
@@ -282,7 +340,7 @@ describe("solutions.wait", () => {
     expect(error).toBeInstanceOf(KardinalTimeoutError);
     expect((error as Error).message).toMatch(/processing/);
     expect(elapsed()).toBe(25);
-    expect(states.calls).toBe(3);
+    expect(states.calls).toBe(4);
   });
 
   it("still polls once with a zero timeout", async () => {
@@ -290,7 +348,7 @@ describe("solutions.wait", () => {
     const states = mockStates([[0, "waiting", 1]]);
     const { error } = await settle(client().routing.solutions.wait(PLAN_ID, 0));
     expect(error).toBeInstanceOf(KardinalTimeoutError);
-    expect(states.calls).toBe(1);
+    expect(states.calls).toBe(2);
   });
 });
 

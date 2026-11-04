@@ -28,7 +28,13 @@ const STALL_MARGIN_MS = 300_000;
 // `stopped` during `optimizing` is followed by `interrupted` once the engine
 // has actually stopped — the solution can still improve in between.
 const STOPPED_GRACE_MS = 60_000;
+// A restart during `optimizing` starts a new run on the same version: /state
+// goes `waiting`/`processing`, then shows the old run's `interrupted` (up to
+// 14s in production) before the new run's `optimizing`. An `interrupted` right
+// after a starting state is that leftover, unless it lasts this long.
+const RESTART_GRACE_MS = 60_000;
 const OPTIMIZING_STATES: readonly PlanState[] = ["optimizing", "preOptimizing"];
+const STARTING_STATES: readonly PlanState[] = ["waiting", "processing"];
 
 /** What `wait()` returns: the solution, plus the plan state it stopped on —
  * `optimized`, or `interrupted`/`stopped` when the optimization was cut
@@ -59,6 +65,7 @@ interface Tracker {
   state: PlanState | null;
   since: number;
   stoppedSince: number | null;
+  leftoverSince: number | null;
 }
 
 /** `k.routing.solutions`: get, getObjectives, wait. */
@@ -106,6 +113,11 @@ export class SolutionsAPI {
    * Meant for scripts and notebooks — a server tracking many plans should
    * schedule its own `getStatus` calls instead.
    *
+   * Right after `plans.start()`, it waits for the new run. The run that the
+   * restart cut short reports `interrupted` a few seconds later, and `wait()`
+   * doesn't stop on it. To see the restart, it reads the state once as soon
+   * as it's called. Call it right after `start()`.
+   *
    * Rejects with `KardinalOptimizationError` when there's no solution to
    * return for this version (`NO_SOLUTION`), a newer version was pushed
    * meanwhile (`PLAN_SUPERSEDED`), or the plan is still optimizing 5
@@ -125,7 +137,14 @@ export class SolutionsAPI {
     const version = plan.version ?? null;
     const budgetMs = plan.maxOptimizationDuration != null ? parseDurationMs(plan.maxOptimizationDuration) : null;
 
-    const tracker: Tracker = { state: null, since: start, stoppedSince: null };
+    const tracker: Tracker = { state: null, since: start, stoppedSince: null, leftoverSince: null };
+    try {
+      // Recorded, never returned: right after `start()` this can still be
+      // the previous run's `optimized`.
+      tracker.state = (await this.plans._getState(planId)).state;
+    } catch (e) {
+      if (!isTransient(e)) throw e;
+    }
     for (;;) {
       const now = performance.now();
       let pause = pollIntervalMs(now - start);
@@ -151,7 +170,8 @@ export class SolutionsAPI {
 
   /** One `wait()` poll: the solution if the plan is done, `null` to keep
    * waiting, or rejects. `tracker` carries what polls need to remember:
-   * the last state seen, since when, and since when it has been `stopped`. */
+   * the last state seen, since when, since when it has been `stopped`, and
+   * since when it has shown a restarted run's leftover `interrupted`. */
   private async pollOnce(
     planId: string,
     version: number | null,
@@ -169,9 +189,16 @@ export class SolutionsAPI {
       if (stateVersion < version) return null; // right after update(): /state hasn't caught up yet
     }
     const now = performance.now();
-    if (state !== tracker.state) {
+    const previous = tracker.state;
+    if (state !== previous) {
       tracker.state = state;
       tracker.since = now;
+    }
+    if (state !== "interrupted") {
+      tracker.leftoverSince = null;
+    } else if ((previous !== null && STARTING_STATES.includes(previous)) || tracker.leftoverSince !== null) {
+      tracker.leftoverSince ??= now;
+      if (now - tracker.leftoverSince < RESTART_GRACE_MS) return null;
     }
 
     if (state === "deleted") throw deletedError(planId);
