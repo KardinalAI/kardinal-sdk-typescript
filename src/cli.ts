@@ -237,13 +237,7 @@ function buildProgram(): Command {
     .action((opts) =>
       run(async () => {
         const client = cliClient();
-        const response = await client._transport.request<{ agencyId?: string }>("GET", "/plans", {
-          params: { page: 1, itemsPerPage: 1, archived: "excluded" },
-        });
-        emit(
-          { valid: true, baseUrl: client._transport.baseUrl, agencyId: response?.agencyId ?? null },
-          !!opts.json
-        );
+        emit({ valid: true, ...(await client.whoami()) }, !!opts.json);
       })
     );
 

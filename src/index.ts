@@ -27,6 +27,14 @@ export interface KardinalOptions {
   onWarning?: (message: string, fields: UnknownField[]) => void;
 }
 
+/** What `Kardinal.whoami()` reports about the API key in use. */
+export interface Whoami {
+  /** The host the key was checked against. */
+  baseUrl: string;
+  /** The agency the key resolves to, or `null` when the API names none. */
+  agencyId: string | null;
+}
+
 class Routing {
   readonly plans: PlansAPI;
   readonly solutions: SolutionsAPI;
@@ -61,6 +69,20 @@ export class Kardinal {
       maxRetries: options.maxRetries,
     });
     this.routing = new Routing(this.transport, options.onWarning);
+  }
+
+  /**
+   * Reports the host and the agency the API key resolves to.
+   *
+   * The call is free: it is a read, retried like any read. Compare
+   * `agencyId` with your own configuration at startup, so a sandbox key
+   * is never used where you expect production.
+   */
+  async whoami(): Promise<Whoami> {
+    const response = await this.transport.request<{ agencyId?: string }>("GET", "/plans", {
+      params: { page: 1, itemsPerPage: 1, archived: "excluded" },
+    });
+    return { baseUrl: this.transport.baseUrl, agencyId: response?.agencyId ?? null };
   }
 
   /** @internal exposed for `auth check`-style diagnostics, not routine use */
