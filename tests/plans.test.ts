@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "./setup.js";
 import { ZodError } from "zod";
@@ -414,5 +414,102 @@ describe("plans, more", () => {
     expect(plan.state).toBe("someFutureState");
     expect(plan.warnings[0].code).toBe("SOME_FUTURE_CODE");
     expect((await plans.list()).items[0].state).toBe("someFutureState");
+  });
+});
+
+describe("API warnings passed to onWarning", () => {
+  const CROW = "Travel times are crow-fly";
+  const warnings = (paths: string[]) => [
+    ...paths.map((path) => ({ code: "INVALID_VALUE", message: "m", properties: { details: CROW, path } })),
+    { code: "INVALID_VALUE", message: "maxOptimizationDuration clamped" },
+  ];
+  const vp = (n: number) => Array.from({ length: n }, (_, i) => `resources.${i}.vehicleProfile`);
+  const respond = (method: "post" | "put", w: unknown[]) =>
+    server.use(
+      http[method](`${BASE}/plans${method === "put" ? `/${PLAN_ID}` : ""}`, () =>
+        HttpResponse.json({ item: { id: PLAN_ID, resources: [] }, warnings: w }, { status: method === "post" ? 201 : 200 }),
+      ),
+    );
+  const withHandler = (onWarning: (m: string, f: unknown[]) => unknown) =>
+    new Kardinal({ apiKey: "test-key", onWarning: onWarning as any });
+
+  it("submit() calls onWarning once per kind of warning, with empty fields", async () => {
+    respond("post", warnings(vp(3)));
+    const spy = vi.fn();
+    const plan = await withHandler(spy).routing.plans.submit({ resources: [] });
+    expect(spy.mock.calls).toEqual([
+      [`Kardinal API warning INVALID_VALUE: ${CROW} (resources.0.vehicleProfile, resources.1.vehicleProfile, resources.2.vehicleProfile)`, []],
+      ["Kardinal API warning INVALID_VALUE: maxOptimizationDuration clamped", []],
+    ]);
+    expect(plan.warnings).toHaveLength(4);
+  });
+
+  it("lists three paths then 'and N more'", async () => {
+    respond("post", warnings(vp(5)));
+    const spy = vi.fn();
+    await withHandler(spy).routing.plans.submit({ resources: [] });
+    expect(spy.mock.calls[0][0]).toBe(
+      `Kardinal API warning INVALID_VALUE: ${CROW} (resources.0.vehicleProfile, resources.1.vehicleProfile, resources.2.vehicleProfile, and 2 more)`,
+    );
+  });
+
+  it("update() and replace() report the same way; get() never does", async () => {
+    respond("put", warnings(vp(1)));
+    const spy = vi.fn();
+    const plans = withHandler(spy).routing.plans;
+    await plans.update({ id: PLAN_ID, resources: [] } as any);
+    await plans.replace(PLAN_ID, { resources: [] });
+    expect(spy).toHaveBeenCalledTimes(4);
+    server.use(
+      http.get(`${BASE}/plans/${PLAN_ID}`, () =>
+        HttpResponse.json({ item: { id: PLAN_ID, resources: [] }, warnings: warnings(vp(1)) }),
+      ),
+    );
+    await plans.get(PLAN_ID);
+    expect(spy).toHaveBeenCalledTimes(4);
+  });
+
+  it("falls back to console.warn without onWarning, and is silent without warnings", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      respond("post", warnings(vp(1)));
+      await client().routing.plans.submit({ resources: [] });
+      expect(warn).toHaveBeenCalledTimes(2);
+      warn.mockClear();
+      respond("post", []);
+      await client().routing.plans.submit({ resources: [] });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a throwing handler never fails the call", async () => {
+    respond("post", warnings(vp(1)));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const plan = await withHandler(() => {
+        throw new Error("boom");
+      }).routing.plans.submit({ resources: [] });
+      expect(plan.id).toBe(PLAN_ID);
+      expect(err).toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it("a rejecting async handler never fails the call or leaves an unhandled rejection", async () => {
+    respond("post", warnings(vp(1)));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const plan = await withHandler(async () => {
+        throw new Error("async boom");
+      }).routing.plans.submit({ resources: [] });
+      expect(plan.id).toBe(PLAN_ID);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(err).toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+    }
   });
 });

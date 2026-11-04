@@ -92,9 +92,54 @@ export class PlansAPI {
     }
   }
 
+  /** Passes one line per kind of API warning to `onWarning`.
+   *
+   * WHY the guard: before this, `onWarning` only ran for a probable typo, and
+   * a handler could throw or return a rejected promise without consequence.
+   * It now runs after the API accepted, and may have billed, the plan. A
+   * failing handler must not turn that success into an error, or make the
+   * caller retry and pay again. Its failure goes to `console.error`. */
+  private reportApiWarnings(warnings: Warning[]): void {
+    const groups = new Map<string, { head: string; paths: string[] }>();
+    for (const w of warnings) {
+      const details = w.properties?.details;
+      const key = JSON.stringify([w.code, details]);
+      let group = groups.get(key);
+      if (!group) {
+        group = { head: `Kardinal API warning ${w.code}: ${details ?? w.message}`, paths: [] };
+        groups.set(key, group);
+      }
+      const path = w.properties?.path;
+      if (path) group.paths.push(path);
+    }
+    const failed = (error: unknown) =>
+      console.error("Kardinal: the onWarning handler failed while reporting an API warning:", error);
+    for (const { head, paths } of groups.values()) {
+      const shown = paths.slice(0, 3);
+      if (paths.length > 3) shown.push(`and ${paths.length - 3} more`);
+      const line = paths.length > 0 ? `${head} (${shown.join(", ")})` : head;
+      try {
+        const result: unknown = this.onWarning(line, []);
+        if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+          (result as Promise<unknown>).then(undefined, failed);
+        }
+      } catch (error) {
+        failed(error);
+      }
+    }
+  }
+
   private planFromEnvelope(response: EnvelopedPlan | null): Plan {
     const plan = planFromEnvelope(response);
     this.rememberServerKeys(plan.id, new Set(unknownFields(plan, planSchema).map(shapeKey)));
+    return plan;
+  }
+
+  /** `planFromEnvelope`, then the warnings: for the calls that write a plan,
+   * never `get()`, which carries none. */
+  private planFromEnvelopeReporting(response: EnvelopedPlan | null): Plan {
+    const plan = this.planFromEnvelope(response);
+    this.reportApiWarnings(plan.warnings);
     return plan;
   }
 
@@ -116,7 +161,7 @@ export class PlansAPI {
     // check separately here.
     const body = parsePlanCreate(plan, opts.allowUnknown ?? []);
     const response = await this.transport.request<EnvelopedPlan>("POST", "/plans", { json: body });
-    return this.planFromEnvelope(response);
+    return this.planFromEnvelopeReporting(response);
   }
 
   /** `GET /plans/{id}`. The plan as currently stored. Never carries
@@ -163,7 +208,7 @@ export class PlansAPI {
       json: stripReadOnly(plan),
       params: { force: String(opts.force ?? false) },
     });
-    return this.planFromEnvelope(response);
+    return this.planFromEnvelopeReporting(response);
   }
 
   /** `PUT /plans/{id}`. Replaces the stored plan with a new plan input, the
@@ -190,7 +235,7 @@ export class PlansAPI {
       json: body,
       params: { force: String(opts.force ?? false) },
     });
-    return this.planFromEnvelope(response);
+    return this.planFromEnvelopeReporting(response);
   }
 
   /** `DELETE /plans/{id}`. Permanently deletes the plan and its solution;
