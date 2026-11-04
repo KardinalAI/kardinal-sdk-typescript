@@ -20,13 +20,15 @@ export interface KardinalOptions {
    * Default: 3. */
   maxRetries?: number;
   /** Where `update()` reports a key that looks like a typo on a plan this
-   * SDK never read, and so cannot check exactly. It also receives each kind
-   * of warning the API returns to `submit()`, `update()` and `replace()`,
-   * as one line with an empty `fields`. A handler that throws, or returns
-   * a promise that rejects, never fails the call for an API warning: the
-   * failure goes to `console.error`. Defaults to `console.warn`. Pass your own logger to route it into a real
-   * log pipeline, or a no-op to stay quiet — a library shouldn't write where
-   * the host application can neither silence nor collect it. */
+   * SDK never read, and so cannot check exactly.
+   *
+   * It also receives each kind of warning the API returns to `submit()`,
+   * `update()` and `replace()`, as one line with an empty `fields`.
+   * A handler that throws, or returns a promise that rejects, never fails
+   * the call for an API warning. The failure goes to `console.error`.
+   *
+   * Defaults to `console.warn`. Pass your own logger to route the lines into
+   * a real log pipeline, or a no-op to stay quiet. */
   onWarning?: (message: string, fields: UnknownField[]) => void;
 }
 

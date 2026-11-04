@@ -55,7 +55,7 @@ them returns a `Promise`, except `iterAll()`, an async iterator.
 | `k.routing.plans.submit(plan)` | `POST /plans` | Validates the plan locally (throws a `ZodError` listing every problem, before anything is sent), then creates it (no `id`: the server assigns it) and starts its optimization. Consumes credits. Returns the `Plan`, with `.warnings`. |
 | `k.routing.plans.get(planId)` | `GET /plans/{id}` | Returns the plan as currently stored. |
 | `k.routing.plans.update(plan, { force: false })` | `PUT /plans/{id}` | Replaces the whole plan (anything left out is removed; fields this SDK version doesn't know, read by `get()`, are kept and sent back). The version increments, and the plan is re-optimized, only if the plan actually changed; an identical update is a free no-op. `force: true` unarchives an archived plan first. |
-| `k.routing.plans.replace(planId, plan, { force: false })` | `PUT /plans/{id}` | Replaces the stored plan with a new plan input, the one `submit()` takes, so you don't need to read the plan first. Anything left out is removed, including a field this SDK version doesn't know. Sends the same body as `submit()`, with no `id`, `agencyId` or `version`, and doesn't check the version (the last write wins). An identical body is a free no-op; a changed body keeps the id and increments the version. Returns the `Plan`, with `.warnings`. `force: true` unarchives an archived plan first. |
+| `k.routing.plans.replace(planId, plan, { force: false })` | `PUT /plans/{id}` | Replaces the stored plan with a new plan input, the one `submit()` takes, so you don't need to read the plan first (see "Full walkthrough"). Returns the `Plan`, with `.warnings`. |
 | `k.routing.plans.delete(planId)` | `DELETE /plans/{id}` | Permanently deletes the plan and its solution; any optimization in progress is stopped. |
 | `k.routing.plans.list({ page: 1, itemsPerPage: 20, archived: "excluded" })` | `GET /plans` | Returns one `Page` of plans, in their light form (`PlanLight`). |
 | `k.routing.plans.iterAll({ archived: "excluded" })` | `GET /plans`, every page | Iterates over every plan (`for await`). |
@@ -145,13 +145,11 @@ const quiet = new Kardinal({ onWarning: () => {} });
 
 A failing handler never loses a plan. If your `onWarning` throws, or returns
 a promise that rejects, the SDK catches the failure and writes it with
-`console.error`. This applies to the warnings of the API. The call still returns the
-plan, because the API has already accepted it. The wording of these lines is
-meant for humans and may change in any release. A program that needs the
-amendments reads `plan.warnings`.
+`console.error`. The call still returns the plan, because the API has already
+accepted it. This applies to the warnings of the API.
 
-A library shouldn't write where the host application can neither silence nor
-collect it, and `onWarning` is that place.
+The wording of these lines is meant for humans and may change in any release.
+A program that needs the amendments reads `plan.warnings`.
 
 There's nothing to close: requests go through Node's built-in `fetch`,
 with no connection pool of the SDK's own.
@@ -384,10 +382,9 @@ for (const warning of plan.warnings) {
 Read them from that return value: warnings aren't stored with the plan, so
 a later `get()` never returns them, only the amended value.
 
-The same warnings also go to `onWarning`, one line per kind of warning (see
-Configuration above). Pass `onWarning: () => {}` to silence them. Warnings
-carried by a rejected plan aren't passed to `onWarning`, because the call
-throws an error instead.
+Warnings carried by a rejected plan aren't passed to `onWarning`, because the
+call throws an error instead. For the rest, see `onWarning` under
+Configuration.
 
 ## The CLI
 
@@ -424,10 +421,10 @@ one: `npm install @kardinal-ai/sdk` alone doesn't pull it in, and the
 - **`submit()` is never retried automatically**, not even after a network
   error or a `5xx`: the API has no idempotency key, so a retry could create
   the plan twice. Reads, `update()`, `replace()`, `delete()`, `start()` and `stop()` are
-  retried. Replaying the same `update()` or `replace()` is harmless: an identical
-  call keeps the same version and isn't billed.
+  retried. Replaying the same `update()` or `replace()` is harmless. An
+  identical call keeps the same version and isn't billed.
 - **`maxOptimizationDuration` is capped by your agency.** A value above the
-  cap is clamped to it, and `submit()`/`update()` report it in `.warnings`.
+  cap is clamped to it, and `submit()`, `update()` and `replace()` report it in `.warnings`.
   By default: 5 seconds in the sandbox (also the default when omitted); in
   production, 15 minutes when omitted and 6 hours at most. The engine stops
   earlier on its own once it stops finding improvements.

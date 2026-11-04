@@ -102,11 +102,11 @@ export class PlansAPI {
   private reportApiWarnings(warnings: Warning[]): void {
     const groups = new Map<string, { head: string; paths: string[] }>();
     for (const w of warnings) {
-      const details = w.properties?.details;
-      const key = JSON.stringify([w.code, details]);
+      const text = w.properties?.details || w.message;
+      const key = JSON.stringify([w.code, text]);
       let group = groups.get(key);
       if (!group) {
-        group = { head: `Kardinal API warning ${w.code}: ${details ?? w.message}`, paths: [] };
+        group = { head: `Kardinal API warning ${w.code}: ${text}`, paths: [] };
         groups.set(key, group);
       }
       const path = w.properties?.path;
@@ -224,7 +224,9 @@ export class PlansAPI {
    * malformed value and an `UnknownFieldError` for an unknown key, both
    * before any request. `allowUnknown` names keys to send anyway.
    *
-   * `force` unarchives the plan first if it's archived; ignored otherwise. */
+   * `force` unarchives the plan first if it's archived; ignored otherwise.
+   *
+   * Like `update()`, it is retried after a network error, a 429 or a 5xx. */
   async replace(
     planId: string,
     plan: PlanCreateInput,

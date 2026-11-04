@@ -444,6 +444,26 @@ describe("API warnings passed to onWarning", () => {
     expect(plan.warnings).toHaveLength(4);
   });
 
+  it("keeps two warnings with the same code and no details as two lines", async () => {
+    respond("post", [
+      { code: "INVALID_VALUE", message: "first message" },
+      { code: "INVALID_VALUE", message: "second message" },
+    ]);
+    const spy = vi.fn();
+    await withHandler(spy).routing.plans.submit({ resources: [] });
+    expect(spy.mock.calls).toEqual([
+      ["Kardinal API warning INVALID_VALUE: first message", []],
+      ["Kardinal API warning INVALID_VALUE: second message", []],
+    ]);
+  });
+
+  it("treats an empty details like a missing one", async () => {
+    respond("post", [{ code: "INVALID_VALUE", message: "the message", properties: { details: "" } }]);
+    const spy = vi.fn();
+    await withHandler(spy).routing.plans.submit({ resources: [] });
+    expect(spy.mock.calls).toEqual([["Kardinal API warning INVALID_VALUE: the message", []]]);
+  });
+
   it("lists three paths then 'and N more'", async () => {
     respond("post", warnings(vp(5)));
     const spy = vi.fn();

@@ -191,8 +191,8 @@ each stack:
 - API warnings on `submit()`, `update()` and `replace()` go to `onWarning`
   here, one line per kind, inside a `try`/`catch` that also catches a
   rejected promise, so a failing handler can't lose a plan the API already
-  accepted. The Python SDK writes them with `logging`, which catches a
-  failing handler by itself.
+  accepted. The Python SDK doesn't call a handler of ours: it writes them on
+  the `kardinal` logger.
 - Case-study plans: `examples.coldChainPlan()` and
   `examples.parcelExpressPlan()` return `PlanCreateInput`, so they equal the
   published payload key for key; the Python functions return `PlanCreate`
