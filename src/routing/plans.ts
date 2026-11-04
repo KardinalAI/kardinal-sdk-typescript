@@ -165,7 +165,8 @@ export class PlansAPI {
   }
 
   /** `GET /plans/{id}`. The plan as currently stored. Never carries
-   * warnings: they're only returned by `submit()`/`update()`. */
+   * warnings: they're only returned by `submit()`, `update()` and
+   * `replace()`. */
   async get(planId: string): Promise<Plan> {
     const response = await this.transport.request<EnvelopedPlan>("GET", `/plans/${planId}`);
     return this.planFromEnvelope(response);
