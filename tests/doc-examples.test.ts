@@ -40,6 +40,7 @@ const PRELUDE: Record<string, string> = {
 const PRELUDE_IMPORTS: Record<string, string[]> = { "sdks__errors-and-warnings": ["Kardinal", "examples"] };
 const EXPORTS: Record<string, string[]> = {
   "sdks__configuration": ["k"],
+  "sdks__plan-lifecycle": ["current", "replaced"],
   "sdks__building-plans": ["created"],
   "guides__breaks": ["plan"],
   "guides__capacities": ["plan"],
@@ -164,6 +165,7 @@ function fakeApi() {
     }),
     http.get(`${BASE}/plans`, () =>
       HttpResponse.json({
+        agencyId: "A_sandbox",
         items: [{ id: PLAN_ID, version: 1, state: "optimized" }],
         paging: { page: 1, totalPages: 1, total: 1, itemsPerPage: 20 },
       })
@@ -213,14 +215,16 @@ const lines = (printed: unknown[][]) => printed.map((args) => args.join(" "));
 // What each page must produce: checked on the results, not only on "it ran".
 const EXPECTED: Record<string, () => Promise<void>> = {
   "sdks__plan-lifecycle": async () => {
-    const { printed, api } = await runPage("sdks__plan-lifecycle");
+    const { mod, printed, api } = await runPage("sdks__plan-lifecycle");
     // The `if (state === "optimized")` branch was taken: the solution is read
     // between the state and the objectives (the compiler can't catch a wrong
     // state name).
     const at = api.requests.lastIndexOf("objectives");
     expect(api.requests.slice(at - 2, at + 1)).toEqual(["state", "solution", "objectives"]);
-    expect(api.plan!.version).toBe(2);
-    expect(api.plan!.orders.map((o: { id: string }) => o.id)).toContain("order-10");
+    expect(mod.current.version).toBe(2); // update
+    expect(mod.current.orders.map((o: { id: string }) => o.id)).toContain("order-10");
+    expect(mod.replaced.version).toBe(3); // then replace, with a new input
+    expect(mod.replaced.orders.map((o: { id: string }) => o.id)).not.toContain("order-10");
     expect(api.requests.filter((r) => r === "running")).toHaveLength(2);
     expect(api.deleted).toBe(true);
     expect(printed).toContainEqual([PLAN_ID, 1]); // plan.id, plan.version

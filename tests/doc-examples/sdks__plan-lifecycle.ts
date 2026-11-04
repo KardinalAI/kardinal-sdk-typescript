@@ -35,12 +35,17 @@ current = await k.routing.plans.update(current); // same id, new version
 const updated = await k.routing.solutions.wait(current.id, 60_000); // sandbox value; in production, allow more than the plan's maxOptimizationDuration
 
 
-// --- sdks/plan-lifecycle.mdx:162
+// --- sdks/plan-lifecycle.mdx:164
+const newInput = examples.smallDeliveryPlan(); // rebuilt from your own data
+const replaced = await k.routing.plans.replace(plan.id, newInput); // same id
+
+
+// --- sdks/plan-lifecycle.mdx:187
 await k.routing.plans.stop(plan.id); // stop the optimization in progress
 await k.routing.plans.start(plan.id); // restart it, on the same version
 
 
-// --- sdks/plan-lifecycle.mdx:183
+// --- sdks/plan-lifecycle.mdx:210
 const page = await k.routing.plans.list({ page: 1, itemsPerPage: 20 });
 console.log(page.total, page.totalPages, page.nextPage);
 
@@ -50,5 +55,5 @@ for await (const lightPlan of k.routing.plans.iterAll()) {
 }
 
 
-// --- sdks/plan-lifecycle.mdx:205
+// --- sdks/plan-lifecycle.mdx:232
 await k.routing.plans.delete(plan.id);

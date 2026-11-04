@@ -21,3 +21,11 @@ plan = await k.routing.plans.submit(planInput);
 for (const warning of plan.warnings) {
   console.log(warning.code, warning.properties); // for example, maxOptimizationDuration clamped
 }
+
+
+// --- sdks/errors-and-warnings.mdx:179
+const typosOnly = new Kardinal({
+  onWarning: (message, fields) => {
+    if (fields.length > 0) console.warn(message);
+  },
+});
