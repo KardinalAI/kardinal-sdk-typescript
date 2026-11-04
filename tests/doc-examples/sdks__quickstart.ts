@@ -8,9 +8,15 @@ const plan = await k.routing.plans.submit(examples.smallDeliveryPlan());
 const solution = await k.routing.solutions.wait(plan.id); // resolves in about 20 seconds
 
 
-// --- sdks/quickstart.mdx:78
+// --- sdks/quickstart.mdx:82
 console.log(solution.finalState); // optimized, or interrupted/stopped if cut short
 for (const tour of solution.tours ?? []) {
   // tours is absent when no stop could be planned
-  console.log(tour.resourceId, tour.wayPoints?.length);
+  console.log(tour.resourceId);
+  for (const wp of tour.wayPoints ?? []) {
+    if (wp.type === "stop") {
+      console.log(wp.stopId, wp.arrivalTime, wp.beginTime);
+    }
+  }
 }
+console.log("Not planned:", solution.unaffectedStopIds ?? []);

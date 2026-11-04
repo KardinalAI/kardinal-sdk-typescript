@@ -45,7 +45,7 @@ export const plan: PlanCreateInput = {
 };
 
 
-// --- guides/skills-and-assignments.mdx:308
+// --- guides/skills-and-assignments.mdx:307
 import type { WaitedSolution } from "@kardinal-ai/sdk";
 
 export function check(solution: WaitedSolution): void {

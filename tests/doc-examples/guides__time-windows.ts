@@ -54,7 +54,7 @@ const plan: PlanCreateInput = {
 };
 
 
-// --- guides/time-windows.mdx:311
+// --- guides/time-windows.mdx:310
 import type { PlanCreateInput, WaitedSolution } from "@kardinal-ai/sdk";
 
 // Reads "2026-10-29 10:00" in the plan's tz, or "2026-10-29T10:00:00+01:00" as is.

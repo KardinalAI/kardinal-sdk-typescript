@@ -16,6 +16,7 @@ import { typecheck } from "./typecheck.js";
 
 const BASE = "https://app.kardinal.ai/api/v2";
 const PLAN_ID = "4cbd0ab8-282c-4b30-b981-29e1ed8a2016";
+const POSITION = { latitude: 48.85, longitude: 2.35 };
 const PLAN_URL = `${BASE}/plans/${PLAN_ID}`;
 const SDK_ENTRY = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const PAGES_DIR = new URL("./doc-examples/", import.meta.url);
@@ -133,7 +134,23 @@ function fakeApi() {
         item: {
           planId: PLAN_ID,
           planVersion: api.plan!.version,
-          tours: [{ resourceId: api.plan!.resources[0].id, wayPoints: [] }],
+          tours: [
+            {
+              resourceId: api.plan!.resources[0].id,
+              wayPoints: [
+                { type: "begin", position: POSITION },
+                {
+                  type: "stop",
+                  stopId: "stop-1",
+                  arrivalTime: "2026-10-29T09:50:00+01:00",
+                  beginTime: "2026-10-29T10:00:00+01:00",
+                  delay: "PT0S",
+                  position: POSITION,
+                },
+                { type: "end", position: POSITION },
+              ],
+            },
+          ],
         },
       });
     }),
@@ -212,7 +229,8 @@ const EXPECTED: Record<string, () => Promise<void>> = {
   "sdks__quickstart": async () => {
     const { printed } = await runPage("sdks__quickstart");
     expect(printed[0]).toEqual(["optimized"]);
-    expect(printed).toHaveLength(2);
+    expect(printed).toContainEqual(["stop-1", "2026-10-29T09:50:00+01:00", "2026-10-29T10:00:00+01:00"]);
+    expect(printed.some((line) => line[0] === "Not planned:")).toBe(true);
   },
   "sdks__configuration": async () => {
     const { mod } = await runPage("sdks__configuration");
