@@ -215,10 +215,17 @@ export class PlansAPI {
    * same input `submit()` takes. Use it to update a plan you did not read
    * with `get()`, for example one you rebuild from your own data.
    *
+   * It is a full replacement, like `update()`. Anything you leave out is
+   * removed, including a field the API gained after this SDK version. To
+   * keep such a field, use `get()` and `update()` instead.
+   *
    * The body is exactly what `submit()` would send for this input, so it
    * carries no `id`, `agencyId` or `version`. The version increments, and the
    * plan is re-optimized, only if the plan actually changed: an identical PUT
-   * is a free no-op, returning the same version.
+   * is a free no-op, returning the same version. A plan created from raw
+   * JSON, without the defaults this SDK fills in (`priority`,
+   * `lateDeparture`, `sharedCapacities`), gets one new version the first
+   * time, and then stays stable.
    *
    * The plan is validated locally first, as in `submit()`: a `ZodError` for a
    * malformed value and an `UnknownFieldError` for an unknown key, both
