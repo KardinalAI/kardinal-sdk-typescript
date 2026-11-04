@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "./setup.js";
 import { ZodError } from "zod";
-import { Kardinal, KardinalNotFoundError, KardinalConnectionError } from "../src/index.js";
+import { Kardinal, KardinalNotFoundError, KardinalConnectionError, UnknownFieldError } from "../src/index.js";
 import { orderSchema, unknownFields } from "../src/routing/schemas.js";
 
 const BASE = "https://app.kardinal.ai/api/v2";
@@ -236,6 +236,63 @@ describe("plans", () => {
     expect(capturedUrl?.searchParams.get("force")).toBe("true");
     await plans.update({ id: PLAN_ID, resources: [] } as any);
     expect(capturedUrl?.searchParams.get("force")).toBe("false");
+  });
+
+  describe("replace()", () => {
+    const putCapture = () => {
+      const seen: { url?: URL; body?: any; posted?: any } = {};
+      server.use(
+        http.put(`${BASE}/plans/${PLAN_ID}`, async ({ request }) => {
+          seen.url = new URL(request.url);
+          seen.body = await request.json();
+          return HttpResponse.json({
+            item: { id: PLAN_ID, resources: [] },
+            warnings: [{ code: "INVALID_VALUE", message: "m" }],
+          });
+        }),
+        http.post(`${BASE}/plans`, async ({ request }) => {
+          seen.posted = await request.json();
+          return HttpResponse.json({ item: { id: PLAN_ID, resources: [] } }, { status: 201 });
+        }),
+      );
+      return seen;
+    };
+
+    it("sends the body submit() sends, without id, agencyId and version", async () => {
+      const seen = putCapture();
+      const plans = client().routing.plans;
+      const plan = await plans.replace(PLAN_ID, { resources: [] });
+      expect(seen.url?.searchParams.get("force")).toBe("false");
+      await plans.submit({ resources: [] });
+      expect(seen.body).toEqual(seen.posted);
+      for (const key of ["id", "agencyId", "version"]) expect(seen.body).not.toHaveProperty(key);
+      expect(plan.id).toBe(PLAN_ID);
+      expect((plan as any).warnings).toEqual([{ code: "INVALID_VALUE", message: "m" }]);
+    });
+
+    it("sends force=true when asked", async () => {
+      const seen = putCapture();
+      await client().routing.plans.replace(PLAN_ID, { resources: [] }, { force: true });
+      expect(seen.url?.searchParams.get("force")).toBe("true");
+    });
+
+    it("refuses an unknown key unless allowUnknown names it", async () => {
+      const seen = putCapture();
+      const plans = client().routing.plans;
+      const typo = { resources: [], zzTypoField: 1 } as any;
+      await expect(plans.replace(PLAN_ID, typo)).rejects.toBeInstanceOf(UnknownFieldError);
+      expect(seen.body).toBeUndefined();
+      await plans.replace(PLAN_ID, typo, { allowUnknown: ["zzTypoField"] });
+      expect(seen.body.zzTypoField).toBe(1);
+    });
+
+    it("throws a ZodError before any request for a malformed value", async () => {
+      const seen = putCapture();
+      await expect(
+        client().routing.plans.replace(PLAN_ID, { resources: "nope" } as any),
+      ).rejects.toBeInstanceOf(ZodError);
+      expect(seen.body).toBeUndefined();
+    });
   });
 
   it("start/stop send force as a query param", async () => {

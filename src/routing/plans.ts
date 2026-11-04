@@ -1,5 +1,5 @@
 /**
- * plans: submit, get, update, delete, list/iterAll, start, stop, getStatus.
+ * plans: submit, get, update, replace, delete, list/iterAll, start, stop, getStatus.
  */
 
 import type { Transport } from "../core/transport.js";
@@ -72,8 +72,8 @@ function refuseUnknown(fields: UnknownField[], allowUnknown?: string[]): void {
 
 export type ArchivedFilter = "excluded" | "included" | "only";
 
-/** `k.routing.plans`: submit, get, update, delete, list/iterAll, start,
- * stop, getStatus. */
+/** `k.routing.plans`: submit, get, update, replace, delete, list/iterAll,
+ * start, stop, getStatus. */
 export class PlansAPI {
   private readonly serverKeys = new Map<string, Set<string>>();
 
@@ -161,6 +161,33 @@ export class PlansAPI {
     }
     const response = await this.transport.request<EnvelopedPlan>("PUT", `/plans/${plan.id}`, {
       json: stripReadOnly(plan),
+      params: { force: String(opts.force ?? false) },
+    });
+    return this.planFromEnvelope(response);
+  }
+
+  /** `PUT /plans/{id}`. Replaces the stored plan with a new plan input, the
+   * same input `submit()` takes. Use it to update a plan you did not read
+   * with `get()`, for example one you rebuild from your own data.
+   *
+   * The body is exactly what `submit()` would send for this input, so it
+   * carries no `id`, `agencyId` or `version`. The version increments, and the
+   * plan is re-optimized, only if the plan actually changed: an identical PUT
+   * is a free no-op, returning the same version.
+   *
+   * The plan is validated locally first, as in `submit()`: a `ZodError` for a
+   * malformed value and an `UnknownFieldError` for an unknown key, both
+   * before any request. `allowUnknown` names keys to send anyway.
+   *
+   * `force` unarchives the plan first if it's archived; ignored otherwise. */
+  async replace(
+    planId: string,
+    plan: PlanCreateInput,
+    opts: { force?: boolean; allowUnknown?: string[] } = {},
+  ): Promise<Plan> {
+    const body = parsePlanCreate(plan, opts.allowUnknown ?? []);
+    const response = await this.transport.request<EnvelopedPlan>("PUT", `/plans/${planId}`, {
+      json: body,
       params: { force: String(opts.force ?? false) },
     });
     return this.planFromEnvelope(response);
