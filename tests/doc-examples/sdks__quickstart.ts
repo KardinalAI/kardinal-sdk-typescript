@@ -5,7 +5,7 @@ import { Kardinal, examples } from "@kardinal-ai/sdk";
 
 const k = new Kardinal(); // reads KARDINAL_API_KEY
 const plan = await k.routing.plans.submit(examples.smallDeliveryPlan());
-const solution = await k.routing.solutions.wait(plan.id); // resolves in about 20 seconds
+const solution = await k.routing.solutions.wait(plan.id, 60_000); // resolves in about 20 seconds
 
 
 // --- sdks/quickstart.mdx:82

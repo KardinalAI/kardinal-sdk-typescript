@@ -11,13 +11,13 @@ for (const warning of plan.warnings) {
 }
 
 
-// --- sdks/plan-lifecycle.mdx:50
-let solution = await k.routing.solutions.wait(plan.id); // no time limit
-solution = await k.routing.solutions.wait(plan.id, 600_000); // at most 10 minutes
+// --- sdks/plan-lifecycle.mdx:52
+let solution = await k.routing.solutions.wait(plan.id, 60_000); // sandbox: about one minute
+solution = await k.routing.solutions.wait(plan.id, 1_800_000); // production: 30 minutes; raise it if you raise maxOptimizationDuration
 console.log(solution.finalState);
 
 
-// --- sdks/plan-lifecycle.mdx:80
+// --- sdks/plan-lifecycle.mdx:82
 const state = await k.routing.plans.getStatus(plan.id); // waiting, processing, optimizing, optimized, ...
 if (state === "optimized") {
   const solution = await k.routing.solutions.get(plan.id);
@@ -25,22 +25,22 @@ if (state === "optimized") {
 const objectives = await k.routing.solutions.getObjectives(plan.id); // objective values only
 
 
-// --- sdks/plan-lifecycle.mdx:134
+// --- sdks/plan-lifecycle.mdx:136
 let current = await k.routing.plans.get(plan.id);
 current.orders = [
   ...(current.orders ?? []),
   { id: "order-10", priority: 0, stops: [{ type: "single", id: "stop-10", position: { lat: 48.86, lon: 2.35 } }] },
 ];
 current = await k.routing.plans.update(current); // same id, new version
-const updated = await k.routing.solutions.wait(current.id);
+const updated = await k.routing.solutions.wait(current.id, 60_000); // sandbox value; in production, allow more than the plan's maxOptimizationDuration
 
 
-// --- sdks/plan-lifecycle.mdx:160
+// --- sdks/plan-lifecycle.mdx:162
 await k.routing.plans.stop(plan.id); // stop the optimization in progress
 await k.routing.plans.start(plan.id); // restart it, on the same version
 
 
-// --- sdks/plan-lifecycle.mdx:181
+// --- sdks/plan-lifecycle.mdx:183
 const page = await k.routing.plans.list({ page: 1, itemsPerPage: 20 });
 console.log(page.total, page.totalPages, page.nextPage);
 
@@ -50,5 +50,5 @@ for await (const lightPlan of k.routing.plans.iterAll()) {
 }
 
 
-// --- sdks/plan-lifecycle.mdx:203
+// --- sdks/plan-lifecycle.mdx:205
 await k.routing.plans.delete(plan.id);
