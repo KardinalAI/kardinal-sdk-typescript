@@ -344,7 +344,8 @@ const EXPECTED: Record<string, () => Promise<void>> = {
 };
 
 it("every copied page has expected values", () => {
-  expect(pageNames()).toEqual(Object.keys(EXPECTED).sort());
+  // An entry may land before its page; a page with blocks needs an entry.
+  expect(pageNames().filter((page) => !(page in EXPECTED))).toEqual([]);
 });
 
 it("every copied page compiles against the SDK sources", () => {

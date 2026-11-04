@@ -129,6 +129,11 @@ then run it with `--check` before each release. The test only
 guards the SDK against the examples as copied: an edit of a page in the
 docs repository is seen at the next sync, not before.
 
+A new doc page with TypeScript blocks needs its entry in `EXPECTED`
+(in `tests/doc-examples.test.ts`) before the page is copied here. Merge the
+entry in this repository first, then the docs merge request. The test
+accepts an entry with no page yet, and fails on a page with no entry.
+
 The same script also copies the "Full payload" block of each case-study
 page (`case-studies/cold-chain-last-mile.mdx` and
 `case-studies/parcel-express.mdx`) into `tests/case-studies/`, selected by
