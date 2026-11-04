@@ -352,6 +352,7 @@ const EXPECTED: Record<string, () => Promise<void>> = {
 
 it("every copied page has expected values", () => {
   // An entry may land before its page; a page with blocks needs an entry.
+  expect(pageNames(), "tests/doc-examples/ is empty: run npm run sync:doc-examples").not.toEqual([]);
   expect(pageNames().filter((page) => !(page in EXPECTED))).toEqual([]);
 });
 
