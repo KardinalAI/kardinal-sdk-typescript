@@ -143,6 +143,19 @@ lines into a real log pipeline, or a no-op to stay quiet:
 const quiet = new Kardinal({ onWarning: () => {} });
 ```
 
+A no-op also hides the typo warnings of `update()`, because the same handler
+receives both kinds. A typo warning has a non-empty `fields` list, and an API
+warning has an empty one. This handler keeps the typo warnings and drops the
+API ones:
+
+```ts
+const typosOnly = new Kardinal({
+  onWarning: (message, fields) => {
+    if (fields.length > 0) console.warn(message);
+  },
+});
+```
+
 A failing handler never loses a plan. If your `onWarning` throws, or returns
 a promise that rejects, the SDK catches the failure and writes it with
 `console.error`. The call still returns the plan, because the API has already
