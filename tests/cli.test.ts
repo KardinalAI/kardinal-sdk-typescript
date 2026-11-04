@@ -116,9 +116,15 @@ describe("version, auth check, init", () => {
         `(SDK ${SDK_VERSION})`,
         "https://developers.kardinal.ai/llms.txt",
         "https://developers.kardinal.ai/getting-started/agent-modeling-checklist",
+        "- Integrating Kardinal into an application? Start with Integration paths. It lists the sections to read, in order: https://developers.kardinal.ai/getting-started/integration-paths",
+        "- Start here if you're an AI agent (the modeling rules that Integration paths sends you to first): https://developers.kardinal.ai/getting-started/agent-modeling-checklist",
+        "- Every page of the docs, for an agent: https://developers.kardinal.ai/llms.txt",
       ]) {
         expect(text).toContain(part);
       }
+      expect(text.indexOf("getting-started/integration-paths")).toBeLessThan(
+        text.indexOf("- Start here if you're an AI agent"),
+      );
     });
 
     it("has a code block that type-checks", async () => {
