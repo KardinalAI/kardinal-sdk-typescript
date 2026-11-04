@@ -42,6 +42,7 @@ const EXPORTS: Record<string, string[]> = {
   "sdks__building-plans": ["created"],
   "guides__breaks": ["plan"],
   "guides__capacities": ["plan"],
+  "guides__multi-day": ["plan", "checkNights"],
   "guides__orders-and-sequences": ["plan"],
   "guides__resource-limits": ["plan", "seconds", "checkLimits"],
   "guides__time-windows": ["plan"],
@@ -300,6 +301,22 @@ const EXPECTED: Record<string, () => Promise<void>> = {
     const { mod } = await runPage("guides__breaks");
     expect(mod.plan.orders.map((o: { id: string }) => o.id)).toEqual(["order-morning", "order-afternoon"]);
     expect(mod.plan.resources[0].breaks).toHaveLength(1);
+  },
+  "guides__multi-day": async () => {
+    const { mod } = await runPage("guides__multi-day");
+    expect(mod.plan.orders).toHaveLength(4);
+    expect(mod.plan.resources[0].breaks).toHaveLength(2);
+    // The guide's night check: a rest between two days passes, a missing one is reported.
+    const stop1 = { type: "stop", arrivalTime: "2026-11-09T15:00:00+01:00" };
+    const rest = {
+      type: "break",
+      arrivalTime: "2026-11-09T19:00:00+01:00",
+      departureTime: "2026-11-10T06:00:00+01:00",
+      fromPrevious: { travelDuration: "PT0S" },
+    };
+    const stop2 = { type: "stop", arrivalTime: "2026-11-10T11:00:00+01:00" };
+    expect(mod.checkNights({ wayPoints: [stop1, rest, stop2] }, "Europe/Paris")).toEqual([]);
+    expect(mod.checkNights({ wayPoints: [stop1, stop2] }, "Europe/Paris")).toHaveLength(1);
   },
   "guides__capacities": async () => {
     const { mod } = await runPage("guides__capacities");

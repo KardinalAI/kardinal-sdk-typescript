@@ -1,6 +1,6 @@
 // Copied from guides/breaks.mdx by scripts/sync-doc-examples.mjs: do not edit by hand.
 
-// --- guides/breaks.mdx:238
+// --- guides/breaks.mdx:216
 import type { PlanCreateInput } from "@kardinal-ai/sdk";
 
 const depot = { lon: 2.35, lat: 48.85 };
