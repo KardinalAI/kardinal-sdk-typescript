@@ -55,6 +55,7 @@ them returns a `Promise`, except `iterAll()`, an async iterator.
 | `k.routing.plans.submit(plan)` | `POST /plans` | Validates the plan locally (throws a `ZodError` listing every problem, before anything is sent), then creates it (no `id`: the server assigns it) and starts its optimization. Consumes credits. Returns the `Plan`, with `.warnings`. |
 | `k.routing.plans.get(planId)` | `GET /plans/{id}` | Returns the plan as currently stored. |
 | `k.routing.plans.update(plan, { force: false })` | `PUT /plans/{id}` | Replaces the whole plan (anything left out is removed; fields this SDK version doesn't know, read by `get()`, are kept and sent back). The version increments, and the plan is re-optimized, only if the plan actually changed; an identical update is a free no-op. `force: true` unarchives an archived plan first. |
+| `k.routing.plans.replace(planId, plan, { force: false })` | `PUT /plans/{id}` | Replaces the stored plan with a new plan input, the one `submit()` takes, so you don't need to read the plan first. Anything left out is removed, including a field this SDK version doesn't know. Sends the same body as `submit()`, with no `id`, `agencyId` or `version`, and doesn't check the version (the last write wins). An identical body is a free no-op; a changed body keeps the id and increments the version. Returns the `Plan`, with `.warnings`. `force: true` unarchives an archived plan first. |
 | `k.routing.plans.delete(planId)` | `DELETE /plans/{id}` | Permanently deletes the plan and its solution; any optimization in progress is stopped. |
 | `k.routing.plans.list({ page: 1, itemsPerPage: 20, archived: "excluded" })` | `GET /plans` | Returns one `Page` of plans, in their light form (`PlanLight`). |
 | `k.routing.plans.iterAll({ archived: "excluded" })` | `GET /plans`, every page | Iterates over every plan (`for await`). |
@@ -113,16 +114,44 @@ different host it is rejected as though the key itself were invalid, so the
 error points at the key rather than the address. Set `baseUrl` (or
 `KARDINAL_BASE_URL`) to the host the key belongs to.
 
+`k.whoami()` checks the key at startup. It makes one free read, retried like
+any read. It returns the host the key was checked against and the agency the
+key resolves to, so you can compare them with your own configuration:
+
+```ts
+const who = await k.whoami(); // { baseUrl, agencyId }
+console.log(who.baseUrl, who.agencyId); // agencyId is null when the API names none
+```
+
 `timeoutMs` (milliseconds) is each request's timeout: one deadline for the
-whole request, reading the response included. `maxRetries` is how many times a read, `update()`, `delete()`,
+whole request, reading the response included. `maxRetries` is how many times a read, `update()`, `replace()`, `delete()`,
 `start()` or `stop()` is retried after a network error, a `429` or a `5xx`;
 `submit()` is never retried (see "Good to know" below).
 
-`onWarning` receives what `update()` can only warn about — a key that looks
-like a typo on a plan this client never read, and so cannot check exactly.
-It defaults to `console.warn`; pass your own logger to route it into a real
-log pipeline, or a no-op to stay quiet. A library shouldn't write where the
-host application can neither silence nor collect it.
+`onWarning` receives two kinds of message. The first kind is what
+`update()` can only warn about: a key that looks like a typo on a plan this
+client never read, and so cannot check exactly. The second kind is the
+amendments the API reports when it accepts a plan (see "Warnings" below).
+`submit()`, `update()` and `replace()` pass those to `onWarning` too, one line
+per kind of warning, and an empty list as the second argument. A sandbox
+plan, for example, gets one line saying that distances are crow-fly.
+
+`onWarning` defaults to `console.warn`. Pass your own logger to route the
+lines into a real log pipeline, or a no-op to stay quiet:
+
+```ts
+const quiet = new Kardinal({ onWarning: () => {} });
+```
+
+A failing handler never loses a plan. If your `onWarning` throws, or returns
+a promise that rejects, the SDK catches the failure and writes it with
+`console.error`. This applies to the warnings of the API. The call still returns the
+plan, because the API has already accepted it. The wording of these lines is
+meant for humans and may change in any release. A program that needs the
+amendments reads `plan.warnings`.
+
+A library shouldn't write where the host application can neither silence nor
+collect it, and `onWarning` is that place.
 
 There's nothing to close: requests go through Node's built-in `fetch`,
 with no connection pool of the SDK's own.
@@ -192,6 +221,26 @@ plan.orders = [
 ];
 plan = await k.routing.plans.update(plan);
 ```
+
+To update a plan you didn't read with `get()`, for example one you rebuild
+from your own data, call `replace()` with a new plan input:
+
+```ts
+const newInput: PlanCreateInput = {
+  ...planInput,
+  orders: [
+    ...planInput.orders!,
+    { id: "order-2", stops: [{ type: "single", id: "stop-2", position: { lat: 48.86, lon: 2.35 } }] },
+  ],
+};
+plan = await k.routing.plans.replace(plan.id, newInput); // same id, version + 1
+```
+
+`replace()` sends the same body as `submit()`, so a plan created by `submit()`
+keeps its version when you replace it with the same input. A plan created
+from raw JSON, without the defaults this SDK adds (`priority`,
+`lateDeparture` and `sharedCapacities`), gets one extra version on its first
+`replace()`. After that, the plan stays stable.
 
 A plan has no top-level list of stops: stops live inside `Order.stops[]`,
 and `Plan.orders[]` is the list of orders. An `Order` groups one or more
@@ -322,8 +371,8 @@ that rejected it was found.
 
 ## Warnings
 
-When the API accepts a plan but amends part of it, `submit()` and
-`update()` return the amendments in `.warnings`:
+When the API accepts a plan but amends part of it, `submit()`,
+`update()` and `replace()` return the amendments in `.warnings`:
 
 ```ts
 plan = await k.routing.plans.submit(planInput);
@@ -334,6 +383,11 @@ for (const warning of plan.warnings) {
 
 Read them from that return value: warnings aren't stored with the plan, so
 a later `get()` never returns them, only the amended value.
+
+The same warnings also go to `onWarning`, one line per kind of warning (see
+Configuration above). Pass `onWarning: () => {}` to silence them. Warnings
+carried by a rejected plan aren't passed to `onWarning`, because the call
+throws an error instead.
 
 ## The CLI
 
@@ -369,9 +423,9 @@ one: `npm install @kardinal-ai/sdk` alone doesn't pull it in, and the
 
 - **`submit()` is never retried automatically**, not even after a network
   error or a `5xx`: the API has no idempotency key, so a retry could create
-  the plan twice. Reads, `update()`, `delete()`, `start()` and `stop()` are
-  retried. Replaying the same `update()` is harmless: an identical update
-  keeps the same version and isn't billed.
+  the plan twice. Reads, `update()`, `replace()`, `delete()`, `start()` and `stop()` are
+  retried. Replaying the same `update()` or `replace()` is harmless: an identical
+  call keeps the same version and isn't billed.
 - **`maxOptimizationDuration` is capped by your agency.** A value above the
   cap is clamped to it, and `submit()`/`update()` report it in `.warnings`.
   By default: 5 seconds in the sandbox (also the default when omitted); in

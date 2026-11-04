@@ -78,6 +78,9 @@ function fakeApi() {
       api.updated = api.plan;
       return HttpResponse.json({ item: api.plan });
     }),
+    http.get(`${BASE}/plans`, () =>
+      HttpResponse.json({ agencyId: "A_sandbox", items: [], paging: { page: 1, totalPages: 0, total: 0 } })
+    ),
     http.get(PLAN_URL, () => HttpResponse.json({ item: api.plan })),
     http.get(`${PLAN_URL}/state`, () =>
       HttpResponse.json({ item: { state: "optimized", planVersion: api.plan!.version } })

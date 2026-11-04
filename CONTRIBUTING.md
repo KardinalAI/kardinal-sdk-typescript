@@ -188,6 +188,11 @@ each stack:
 - `update()`'s warning on a likely typo goes to `onWarning` (default
   `console.warn`); the Python SDK raises an `UnknownFieldWarning` through
   `warnings`.
+- API warnings on `submit()`, `update()` and `replace()` go to `onWarning`
+  here, one line per kind, inside a `try`/`catch` that also catches a
+  rejected promise, so a failing handler can't lose a plan the API already
+  accepted. The Python SDK writes them with `logging`, which catches a
+  failing handler by itself.
 - Case-study plans: `examples.coldChainPlan()` and
   `examples.parcelExpressPlan()` return `PlanCreateInput`, so they equal the
   published payload key for key; the Python functions return `PlanCreate`
