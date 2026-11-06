@@ -244,14 +244,18 @@ function buildProgram(): Command {
   program
     .command("init")
     .description(
-      "Write a Claude Code skill for this SDK (.claude/skills/kardinal-typescript/SKILL.md): " +
-        "run it at the repository root."
+      "Write a skill for this SDK where coding agents load it: .claude/skills/kardinal-typescript/SKILL.md " +
+        "(Claude Code) and .agents/skills/kardinal-typescript/SKILL.md (Codex, Mistral Vibe). " +
+        "Run it at the repository root."
     )
     .action(() => {
-      const path = resolve(".claude/skills/kardinal-typescript/SKILL.md");
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, SKILL.replace("{version}", SDK_VERSION));
-      console.log(`Wrote ${path}`);
+      // WHY: Claude Code reads only .claude/skills, and Codex and Mistral Vibe read .agents/skills.
+      for (const folder of [".claude", ".agents"]) {
+        const path = resolve(folder, "skills/kardinal-typescript/SKILL.md");
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, SKILL.replace("{version}", SDK_VERSION));
+        console.log(`Wrote ${path}`);
+      }
       console.log("In a running Claude Code session, run /reload-skills to load it.");
       if (existsSync(".kardinal/SKILL.md")) {
         console.log(".kardinal/SKILL.md is no longer written by `kardinal init`: it can be deleted.");

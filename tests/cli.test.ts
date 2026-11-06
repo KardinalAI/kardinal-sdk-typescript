@@ -92,6 +92,13 @@ describe("version, auth check, init", () => {
       expect(existsSync(join(dir, ".kardinal", "SKILL.md"))).toBe(false);
     });
 
+    it("writes the same skill under .agents/skills, where Codex and Mistral Vibe load it", async () => {
+      expect(await cli("init")).toBe(0);
+      const agentsCopy = join(dir, ".agents", "skills", "kardinal-typescript", "SKILL.md");
+      expect(readFileSync(agentsCopy, "utf-8")).toBe(written());
+      expect(stdout).toContain(agentsCopy);
+    });
+
     it("starts with a YAML front matter holding exactly name and description, the name being the folder", async () => {
       await cli("init");
       const text = written();

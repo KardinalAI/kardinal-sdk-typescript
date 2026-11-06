@@ -412,7 +412,7 @@ kardinal routing plans validate <file> local only, no API call, no credits
 kardinal routing solutions get <id> | objectives <id> | wait <id>
 
 kardinal routing demo                  submits the example plan, waits for it
-kardinal init                          writes .claude/skills/kardinal-typescript/SKILL.md, a skill for Claude Code and any tool that reads Agent Skills (run it at the repository root)
+kardinal init                          writes the same skill to .claude/skills/kardinal-typescript/SKILL.md (Claude Code) and .agents/skills/kardinal-typescript/SKILL.md (Codex, Mistral Vibe); run it at the repository root
 ```
 
 JSON output when stdout isn't a terminal, or with `--json`; a readable table
