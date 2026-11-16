@@ -23,7 +23,7 @@ for (const warning of plan.warnings) {
 }
 
 
-// --- sdks/errors-and-warnings.mdx:179
+// --- sdks/errors-and-warnings.mdx:188
 const typosOnly = new Kardinal({
   onWarning: (message, fields) => {
     if (fields.length > 0) console.warn(message);
