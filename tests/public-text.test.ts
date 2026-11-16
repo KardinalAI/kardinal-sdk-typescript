@@ -11,15 +11,13 @@ import { expect, it } from "vitest";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const GENERATED = join(ROOT, "src", "routing", "generated-types.ts");
 
-// Internal environments and hosts, the GitLab path, a fake key format (API
+// Internal environments and hosts (the public Console is fine), the GitLab path, a fake key format (API
 // keys are JWTs), the webhook endpoints (x-excluded from the public spec),
 // a performance claim nobody verified, and CONTRIBUTING.md (maintainer
 // notes, not shipped in the package: a dead reference on npmjs.com).
-// `console` is the word, not `console.log()`.
 const FORBIDDEN = [
   /contributing\.md/i,
   /sk-/i,
-  /console(?!\.)/i,
   /per.deployment/i,
   /plt\./i,
   /gitlab/i,
