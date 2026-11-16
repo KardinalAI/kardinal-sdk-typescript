@@ -30,5 +30,9 @@ export type SolutionObjectives = components["schemas"]["SolutionObjective"][] & 
  * starting or stopping doesn't change. */
 export type PlanReference = components["schemas"]["EnvelopedPlanReference"];
 export type Tour = components["schemas"]["Tour"];
+export type WayPointBegin = components["schemas"]["WayPointBegin"];
+export type WayPointStop = components["schemas"]["WayPointStop"];
+export type WayPointBreak = components["schemas"]["WayPointBreak"];
+export type WayPointEnd = components["schemas"]["WayPointEnd"];
 export type SolutionObjective = components["schemas"]["SolutionObjective"];
 export type ErrorEntry = components["schemas"]["Error"];

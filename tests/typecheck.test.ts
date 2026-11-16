@@ -67,3 +67,15 @@ export const strategy: string | undefined = violation?.type === "removalStrategy
 `;
   expect(typecheck({ "good.ts": good })).toEqual([]);
 });
+
+// The four waypoint types are importable by name from the package root, so
+// reading a tour's stops needs no `NonNullable<Tour["wayPoints"]>[number]`.
+it("the four waypoint types are importable by name and narrow on type", () => {
+  const good = `import type { Tour, WayPointBegin, WayPointStop, WayPointBreak, WayPointEnd } from "@kardinal-ai/sdk";
+declare const tour: Tour;
+const stops: WayPointStop[] = (tour.wayPoints ?? []).filter((w): w is WayPointStop => w.type === "stop");
+export const ids: (string | undefined)[] = stops.map((s) => s.stopId);
+export type All = WayPointBegin | WayPointStop | WayPointBreak | WayPointEnd;
+`;
+  expect(typecheck({ "good.ts": good })).toEqual([]);
+});
