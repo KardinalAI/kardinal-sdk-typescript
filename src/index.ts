@@ -1,4 +1,13 @@
-/** Kardinal TypeScript SDK. */
+/**
+ * Kardinal TypeScript SDK. Guides and reference:
+ * https://developers.kardinal.ai/sdks/overview
+ *
+ * Do you write code with an AI coding agent? Run `npx kardinal init` at the
+ * root of your repository. It writes a skill for the agent, with the
+ * pitfalls of this SDK and links to the modeling rules, to
+ * `.claude/skills/kardinal-typescript/SKILL.md` (Claude Code) and
+ * `.agents/skills/kardinal-typescript/SKILL.md` (Codex, Mistral Vibe).
+ */
 
 import { resolveApiKey } from "./core/auth.js";
 import { Transport } from "./core/transport.js";

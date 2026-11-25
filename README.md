@@ -11,6 +11,13 @@ npm install @kardinal-ai/sdk commander       # + the `kardinal` command
 The package is published as `@kardinal-ai/sdk`, and the command is
 `kardinal`. Node.js 22 or later.
 
+Do you write code with an AI coding agent? Run `npx kardinal init` at the
+root of your repository. It writes a skill for the agent, with the pitfalls
+of this SDK and links to the modeling rules. Claude Code reads it from
+`.claude/skills/kardinal-typescript/SKILL.md`, and Codex and Mistral Vibe
+read it from `.agents/skills/kardinal-typescript/SKILL.md`. The command
+needs `commander`, as the install line above shows.
+
 Documentation: https://developers.kardinal.ai/sdks/overview (SDK guides and reference)
 and https://developers.kardinal.ai (the API itself).
 
