@@ -142,7 +142,7 @@ export function coldChainPlan(): PlanCreateInput {
     // Truck with a worked-hours cost, a break rule and a preferred sector.
     {
       id: "truck-1",
-      vehicleProfile: { type: "truck", withTraffic: true },
+      vehicleProfile: { type: "truck", withTraffic: true, grossWeight: 7500 },
       workingTimeWindow: { begin: at("05:00"), end: at("20:00") },
       departure: { ...depot },
       arrival: { ...depot },
@@ -156,7 +156,7 @@ export function coldChainPlan(): PlanCreateInput {
     // Two drivers with the two compartments only, on a shorter day.
     ...[1, 2].map((i) => ({
       id: `driver-${i}`,
-      vehicleProfile: { type: "truck" as const },
+      vehicleProfile: { type: "car" as const },
       workingTimeWindow: { begin: at("07:00"), end: at("17:00") },
       departure: { ...depot },
       arrival: { ...depot },
