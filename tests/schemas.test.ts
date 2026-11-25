@@ -120,6 +120,51 @@ describe("parsePlanCreate (rules shared with the Python SDK)", () => {
     ]);
   });
 
+  it("requires a strictly positive kmph on a fly profile, as the API does", () => {
+    // Tested on 2026-11-25 in the sandbox and in production: the API refuses
+    // a fly profile without kmph, or with 0 or less, with a 400.
+    const fly = (profile: object) => ({ resources: [{ ...resource, vehicleProfile: { type: "fly", ...profile } }] });
+    expect(() => parsePlanCreate(fly({ kmph: 45 }))).not.toThrow();
+    expect(() => parsePlanCreate(fly({ kmph: 0.5 }))).not.toThrow();
+    for (const profile of [{}, { kmph: 0 }, { kmph: -10 }]) {
+      let error: unknown;
+      try {
+        parsePlanCreate(fly(profile));
+      } catch (e) {
+        error = e;
+      }
+      expect(error, JSON.stringify(profile)).toBeInstanceOf(z.ZodError);
+      expect((error as z.ZodError).issues).toEqual([
+        expect.objectContaining({
+          path: ["resources", 0, "vehicleProfile", "kmph"],
+          message: "Should be a strictly positive floating value.",
+        }),
+      ]);
+    }
+  });
+
+  it.each(["truck", "car", "motorbike", "scooter"])("takes a %s speedCap between 1 and 70 metres per second", (type) => {
+    // Tested on 2026-11-25 in the sandbox and in production: the API refuses
+    // a value outside 1 to 70 with a 400, and accepts decimals.
+    const capped = (speedCap: number) => ({ resources: [{ ...resource, vehicleProfile: { type, speedCap } }] });
+    for (const ok of [1, 22.22, 70]) expect(() => parsePlanCreate(capped(ok)), String(ok)).not.toThrow();
+    for (const bad of [0.5, 70.5, 80]) {
+      let error: unknown;
+      try {
+        parsePlanCreate(capped(bad));
+      } catch (e) {
+        error = e;
+      }
+      expect(error, String(bad)).toBeInstanceOf(z.ZodError);
+      expect((error as z.ZodError).issues).toEqual([
+        expect.objectContaining({
+          path: ["resources", 0, "vehicleProfile", "speedCap"],
+          message: "speedCap must be between 1 and 70, in metres per second (80 km/h is 22.22)",
+        }),
+      ]);
+    }
+  });
+
   it("rejects an unknown vehicle profile type", () => {
     expect(() => parsePlanCreate({ resources: [{ ...resource, vehicleProfile: { type: "boat" } }] })).toThrow(
       z.ZodError

@@ -151,12 +151,18 @@ const roadOptions = {
   avoidDirtRoad: z.boolean().optional(),
   excludedCountries: z.array(z.string()).optional(),
 };
+// `speedCap` is in metres per second, not km/h: the API refuses a value
+// outside 1 to 70 (3.6 to 252 km/h) with a 400, and accepts decimals. The
+// message names the unit, since a value outside the range is most likely
+// one written in km/h.
+const speedCapMessage = "speedCap must be between 1 and 70, in metres per second (80 km/h is 22.22)";
+const speedCap = z.number().min(1, { message: speedCapMessage }).max(70, { message: speedCapMessage });
 const motorOptions = {
   ...roadOptions,
   avoidControlledAccessHighway: z.boolean().optional(),
   avoidCarShuttleTrain: z.boolean().optional(),
   avoidTunnel: z.boolean().optional(),
-  speedCap: z.number().optional(),
+  speedCap: speedCap.optional(),
 };
 const carOptions = {
   ...motorOptions,
@@ -168,8 +174,12 @@ const carOptions = {
 // and the default "expected integer" would push the developer to round it to
 // a whole number that the API reads as centimetres, with no error.
 const centimetres = z.number().int({ message: "Expected a whole number of centimetres (4.2 m is 420)" });
+// The API refuses a `fly` profile without `kmph`, or with 0 or less, with
+// this message, although the spec doesn't list `kmph` as required.
+const kmphMessage = "Should be a strictly positive floating value.";
+const kmph = z.number({ required_error: kmphMessage }).positive({ message: kmphMessage });
 const vehicleProfileSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("fly"), kmph: z.number().optional() }).passthrough(),
+  z.object({ type: z.literal("fly"), kmph }).passthrough(),
   z.object({ type: z.literal("pedestrian"), ...roadOptions }).passthrough(),
   z.object({ type: z.literal("bicycle"), ...roadOptions, avoidTunnel: z.boolean().optional() }).passthrough(),
   z
@@ -178,7 +188,7 @@ const vehicleProfileSchema = z.discriminatedUnion("type", [
       ...roadOptions,
       avoidCarShuttleTrain: z.boolean().optional(),
       avoidTunnel: z.boolean().optional(),
-      speedCap: z.number().optional(),
+      speedCap: speedCap.optional(),
     })
     .passthrough(),
   z.object({ type: z.literal("motorbike"), ...motorOptions }).passthrough(),
