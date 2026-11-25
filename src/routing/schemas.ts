@@ -492,4 +492,13 @@ export type Plan = Omit<components["schemas"]["Plan"], "id" | "orders"> & {
   warnings: Warning[];
 };
 
+/**
+ * An amendment the API made to a plan it accepted. Every amendment currently
+ * has the code `INVALID_VALUE` and the message `The field value is not
+ * valid.`, so neither tells you what happened. Read `properties?.path`,
+ * which is stable, and the value stored at that path in the returned plan.
+ * The text in `properties.details` is not stable and contains the internal
+ * id of your agency: don't show it, or `message`, to the planner. See
+ * https://developers.kardinal.ai/sdks/errors-and-warnings#warnings-on-successful-calls
+ */
 export type Warning = components["schemas"]["Warning"];

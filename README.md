@@ -416,12 +416,24 @@ When the API accepts a plan but amends part of it, `submit()`,
 ```ts
 plan = await k.routing.plans.submit(planInput);
 for (const warning of plan.warnings) {
-  console.log(warning.code, warning.properties); // e.g. maxOptimizationDuration clamped
+  const path = warning.properties?.path ?? ""; // e.g. maxOptimizationDuration, when the API clamped it
+  const stored = path.split(".").reduce<any>((value, key) => value?.[key], plan);
+  console.log(path, stored); // the value the API kept, e.g. PT5S
 }
 ```
 
 Read them from that return value: warnings aren't stored with the plan, so
 a later `get()` never returns them, only the amended value.
+
+Every amendment currently has the code `INVALID_VALUE` and the message
+`The field value is not valid.`, the same as a validation error. The code
+and the message don't tell you what happened. Only `properties.path` does,
+and it is stable. The text in `properties.details` is not stable. The API
+writes it in English, and it contains the internal id of your agency.
+Don't show `details` or `message` to the planner. Build your own message
+from the path and from the value stored at that path in the returned plan,
+as the loop above does. https://developers.kardinal.ai/sdks/errors-and-warnings#warnings-on-successful-calls
+lists the paths the API uses today.
 
 Warnings carried by a rejected plan aren't passed to `onWarning`, because the
 call throws an error instead. For the rest, see `onWarning` under
