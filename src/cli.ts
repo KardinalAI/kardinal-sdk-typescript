@@ -11,10 +11,10 @@
  *
  * Exit codes: 0 on success, 1 for a business error (the API refused, or
  * the plan is invalid: printed as JSON on stdout), 2 for a usage error
- * (unknown command or option, bad option value, missing file).
+ * (unknown command or option, bad option value, missing file), and when
+ * `commander` isn't installed.
  */
 
-import { Command, CommanderError, InvalidArgumentError, Option } from "commander";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,6 +66,25 @@ const SKILL = [
 ].join("\n") + "\n";
 
 const Exit = { OK: 0, BUSINESS_ERROR: 1, USAGE_ERROR: 2 } as const;
+
+/** Imports `commander`, an optional peer dependency. Without it, the
+ * `kardinal` command says how to install it and exits, instead of Node.js
+ * printing an `ERR_MODULE_NOT_FOUND` stack trace. */
+export async function loadCommander(load: () => Promise<typeof import("commander")> = () => import("commander")) {
+  try {
+    return await load();
+  } catch (e) {
+    const missing = (e as { code?: unknown }).code === "ERR_MODULE_NOT_FOUND" && /'commander'/.test(String((e as Error).message));
+    if (!missing) throw e;
+    process.stderr.write(
+      "The kardinal command needs the commander package, which isn't installed.\n" +
+        "Install it next to the SDK: npm install @kardinal-ai/sdk commander\n"
+    );
+    return process.exit(Exit.USAGE_ERROR);
+  }
+}
+
+const { Command, CommanderError, InvalidArgumentError, Option } = await loadCommander();
 
 /** `new Kardinal()` for a CLI command: same configuration (environment
  * variables), with `cli;` in the User-Agent so the backend can tell CLI
@@ -214,7 +233,7 @@ const forceOption = () => new Option("--force", "Unarchive the plan first, if ar
 
 /** A fresh command tree: commander keeps parsed option values on the
  * `Command` objects, so each `main()` call builds its own. */
-function buildProgram(): Command {
+function buildProgram(): InstanceType<typeof Command> {
   const program = new Command();
   program.name("kardinal").description("Kardinal CLI.").exitOverride();
 

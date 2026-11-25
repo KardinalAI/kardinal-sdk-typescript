@@ -442,7 +442,8 @@ key never lands in shell history or the process list. `solutions wait` takes
 
 `commander` (the CLI's argument parser) is a peer dependency, not a hard
 one: `npm install @kardinal-ai/sdk` alone doesn't pull it in, and the
-`kardinal` command needs `commander` installed alongside it.
+`kardinal` command needs `commander` installed alongside it. Without it,
+the command prints the `npm install` line to run and exits with code `2`.
 
 ## Good to know
 
