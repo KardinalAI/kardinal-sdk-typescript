@@ -175,7 +175,7 @@ const carOptions = {
 // a whole number that the API reads as centimetres, with no error.
 const centimetres = z.number().int({ message: "Expected a whole number of centimetres (4.2 m is 420)" });
 // The API refuses a `fly` profile without `kmph`, or with 0 or less, with
-// this message, although the spec doesn't list `kmph` as required.
+// this message.
 const kmphMessage = "Should be a strictly positive floating value.";
 const kmph = z.number({ required_error: kmphMessage }).positive({ message: kmphMessage });
 const vehicleProfileSchema = z.discriminatedUnion("type", [

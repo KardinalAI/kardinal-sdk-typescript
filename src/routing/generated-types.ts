@@ -713,7 +713,11 @@ export interface components {
              *     ]
              */
             tags?: (string & components["schemas"]["RegexIdValidation"])[];
-            /** @description Mode of transport and its travel constraints. Each type exposes different parameters; `truck` is the richest (weight, dimensions, hazardous goods, toll/tunnel/highway avoidance). See the individual `VehicleProfile*` schemas for the full parameter list of each mode. */
+            /**
+             * @description Mode of transport and its travel constraints. Each type exposes different parameters; `truck` is the richest (weight, dimensions, hazardous goods, toll/tunnel/highway avoidance). See the individual `VehicleProfile*` schemas for the full parameter list of each mode. Only the `fly` profile reads `kmph`.
+             *
+             *     > **Modelling pitfall.** A road profile accepts `kmph` without an error or a warning. It then ignores the value.
+             */
             vehicleProfile: components["schemas"]["VehicleProfileFly"] | components["schemas"]["VehicleProfilePedestrian"] | components["schemas"]["VehicleProfileBicycle"] | components["schemas"]["VehicleProfileScooter"] | components["schemas"]["VehicleProfileMotorbike"] | components["schemas"]["VehicleProfileCar"] | components["schemas"]["VehicleProfileTruck"];
             /** @description Capacity ceilings available on this resource. See the `Capacities` schema. */
             capacities?: components["schemas"]["Capacities"];
@@ -865,7 +869,7 @@ export interface components {
              *
              *     When a preferred window closes before the authorized window opens, the stop is served inside the authorized window. The delay is still measured from the `end` of the preferred window. When a preferred window opens after the authorized window closes, the stop is not planned. When a preferred window sits inside a wider authorized window, service waits for the preferred window to open.
              *
-             *     > **Modelling pitfall.** A preferred window doesn't make the stop reachable at any time. To express "deliver at 21:00 if possible, otherwise earlier", don't use a preferred window: it forbids starting before 21:00.
+             *     > **Modelling pitfall.** A preferred window doesn't make the stop reachable at any time. To express "deliver at 21:00 if possible, otherwise earlier", don't use a preferred window: it forbids starting before 21:00. Use an `AlternativesStop` with a 21:00 candidate and an earlier candidate whose preferred window ends one minute before its authorized window opens. See [Hard or preferred window](https://developers.kardinal.ai/guides/time-windows#hard-or-preferred-window).
              * @example [
              *       {
              *         "begin": "2026-03-17T09:00:00+01:00",
@@ -973,7 +977,7 @@ export interface components {
              */
             name?: string;
             /**
-             * @description The constraint's maximum allowed cumulated cost, in the same unit as the costs in `costsByResourceTag`. It is required and has no default: a constraint without it is rejected with a `400` `INVALID_VALUE` error. This is a hard limit: the engine leaves stops unplanned rather than exceed it, so a mandatory stop can end up in `unaffectedStopIds`. The exception is locked tours (`state.mode: fixed`) that already cost more than `maximum`: the engine keeps the locked stops, goes over `maximum`, and reports it in `globalViolations`.
+             * @description The constraint's maximum allowed cumulated cost, in the same unit as the costs in `costsByResourceTag`. It is required and has no default: a constraint without it is rejected with a `400` `INVALID_VALUE` error. This is a hard limit: the engine leaves stops unplanned rather than exceed it, so a mandatory stop can end up in `unaffectedStopIds`. The exception is locked stops that already cost more than `maximum`. They are stops in a tour with `state.mode: fixed`, or `status: fixed` entries in a `free` tour. The engine keeps them, goes over `maximum`, and reports it in `globalViolations`. Currently, once locked stops break the cap, it no longer limits new cost under its tags, and the engine can still add a tagged vehicle.
              * @example 1000
              */
             maximum: number;
@@ -993,7 +997,7 @@ export interface components {
          *
          *     > **When to use.** Reorder the list to change which objective the engine favours when two cannot both be improved at once, for example moving `minimizeCosts` ahead of `minimizeDistance` when cost matters more than raw kilometres for this fleet.
          *
-         *     > **Modelling pitfall.** Because priority is lexicographic rather than weighted, reordering the list can change the chosen solution even when every objective's value looks comparable; moving an objective earlier makes the engine trade off later objectives to protect it, not merely break ties differently. A list without `maximizeMandatoryStops` is accepted, but it may plan no stop at all: with `["minimizeDistance"]` alone, every stop stays unplanned.
+         *     > **Modelling pitfall.** Because priority is lexicographic rather than weighted, reordering the list can change the chosen solution even when every objective's value looks comparable; moving an objective earlier makes the engine trade off later objectives to protect it, not merely break ties differently. A list without `maximizeMandatoryStops` is accepted, but it may plan no stop at all: with `["minimizeDistance"]` alone, every stop stays unplanned. Rank `maximizeMandatoryStops` and `maximizeOptionalStops` before a `maximizePrecedences` object. With another order, the API accepts the plan and keeps your order, but it returns an `INVALID_VALUE` warning in the `warnings` of the POST or PUT response. If you ignore it, the engine can leave stops unplanned to keep a precedence order.
          * @default [
          *       "maximizeMandatoryStops",
          *       "minimizeDelay",
@@ -1044,7 +1048,7 @@ export interface components {
         /**
          * @description Objective that rewards the engine for respecting a set of "this stop tag before that stop tag" precedence pairs, as an entry in `PlanObjectives`.
          *
-         *     > **Modelling pitfall.** This is a preference, not a hard rule: the engine can break a pair when time windows or other objectives make it the better choice. When the engine plans the tour itself, the only order it always keeps is the order of the stops inside one order's `stops` array. Ranked before `minimizeResources`, `maximizePrecedences` can make the engine use more vehicles than it needs: for example, four stops that one vehicle could serve can end up split over two vehicles.
+         *     > **Modelling pitfall.** This is a preference, not a hard rule: the engine can break a pair when time windows or other objectives make it the better choice. When the engine plans the tour itself, the only order it always keeps is the order of the stops inside one order's `stops` array. Rank `maximizeMandatoryStops` and `maximizeOptionalStops` before `maximizePrecedences`. With another order, the API accepts the plan and keeps your order, but it returns an `INVALID_VALUE` warning in the `warnings` of the POST or PUT response. If you ignore it, the engine can leave stops unplanned to keep a precedence order. The value of the `maximizePrecedences(valid-precedences)` line in the solution is a score, not a plain count of respected pairs. Currently, depots, stops without a tag, and stops whose tag is only a `previous` tag add nothing to it.
          */
         MaximizePrecedencesObjective: {
             /**
@@ -1364,10 +1368,10 @@ export interface components {
              */
             type: "fly";
             /**
-             * @description Constant travel speed, in km/h, used to compute crow-fly travel times.
+             * @description Constant travel speed, in km/h, used to compute crow-fly travel times. You must send `kmph` with the `fly` profile. It must be strictly positive. The API refuses a `fly` profile without it, or with 0 or less, with a `400` error.
              * @example 60
              */
-            kmph?: number;
+            kmph: number;
         };
         /** @description Road-network routing for the pedestrian mode. */
         VehicleProfilePedestrian: {
@@ -1423,8 +1427,10 @@ export interface components {
             /** @description Countries to route around entirely. */
             excludedCountries?: components["schemas"]["CountryCodes"];
             /**
-             * @description Maximum travel speed, in km/h, applied to every road segment regardless of its posted speed limit.
-             * @example 45
+             * @description Maximum travel speed, in metres per second (m/s), applied to every road segment regardless of its posted speed limit. The value must be between 1 and 70, which is 3.6 to 252 km/h. Decimals are accepted. To cap a vehicle at 80 km/h, send `22.22`, which is 80 divided by 3.6.
+             *
+             *     > **Modelling pitfall.** `speedCap` is in metres per second, not in km/h. A value written in km/h, such as `50`, is read as 180 km/h, so it rarely slows the vehicle. The API refuses the whole plan with a `400` error when `speedCap` is outside 1 to 70.
+             * @example 12.5
              */
             speedCap?: number;
         };
@@ -1450,8 +1456,10 @@ export interface components {
             /** @description Countries to route around entirely. */
             excludedCountries?: components["schemas"]["CountryCodes"];
             /**
-             * @description Maximum travel speed, in km/h, applied to every road segment regardless of its posted speed limit.
-             * @example 90
+             * @description Maximum travel speed, in metres per second (m/s), applied to every road segment regardless of its posted speed limit. The value must be between 1 and 70, which is 3.6 to 252 km/h. Decimals are accepted. To cap a vehicle at 80 km/h, send `22.22`, which is 80 divided by 3.6.
+             *
+             *     > **Modelling pitfall.** `speedCap` is in metres per second, not in km/h. A value written in km/h, such as `50`, is read as 180 km/h, so it rarely slows the vehicle. The API refuses the whole plan with a `400` error when `speedCap` is outside 1 to 70.
+             * @example 27.78
              */
             speedCap?: number;
         };
@@ -1483,8 +1491,10 @@ export interface components {
             /** @description Countries to route around entirely. */
             excludedCountries?: components["schemas"]["CountryCodes"];
             /**
-             * @description Maximum travel speed, in km/h, applied to every road segment regardless of its posted speed limit.
-             * @example 90
+             * @description Maximum travel speed, in metres per second (m/s), applied to every road segment regardless of its posted speed limit. The value must be between 1 and 70, which is 3.6 to 252 km/h. Decimals are accepted. To cap a vehicle at 80 km/h, send `22.22`, which is 80 divided by 3.6.
+             *
+             *     > **Modelling pitfall.** `speedCap` is in metres per second, not in km/h. A value written in km/h, such as `50`, is read as 180 km/h, so it rarely slows the vehicle. The API refuses the whole plan with a `400` error when `speedCap` is outside 1 to 70.
+             * @example 27.78
              */
             speedCap?: number;
         };
@@ -1554,8 +1564,10 @@ export interface components {
             length?: number;
             tunnelCategory?: components["schemas"]["TunnelCategory"];
             /**
-             * @description Maximum travel speed, in km/h, applied to every road segment regardless of its posted speed limit.
-             * @example 80
+             * @description Maximum travel speed, in metres per second (m/s), applied to every road segment regardless of its posted speed limit. The value must be between 1 and 70, which is 3.6 to 252 km/h. Decimals are accepted. To cap a vehicle at 80 km/h, send `22.22`, which is 80 divided by 3.6.
+             *
+             *     > **Modelling pitfall.** `speedCap` is in metres per second, not in km/h. A value written in km/h, such as `50`, is read as 180 km/h, so it rarely slows the vehicle. The API refuses the whole plan with a `400` error when `speedCap` is outside 1 to 70.
+             * @example 22.22
              */
             speedCap?: number;
         };
@@ -1606,6 +1618,8 @@ export interface components {
          *
          *     > **Modelling pitfall.** An overcost cannot be set if there is no cost, and `overcostFloor` must be greater than `costFloor`.
          *
+         *     > **Modelling pitfall.** A non-zero `overcostCoeff` needs an `overcostFloor` greater than 0. A plan that sets one without it is refused with a `400` error `INVALID_VALUE`, and the details say `an overcostCoeff cannot be set without overcostFloor`.
+         *
          *     > **Modelling pitfall.** A field that is not listed here, such as `using`, raises no error: it is silently ignored. `using` belongs on `Cost`, not on a cost base.
          */
         CostFloorsAndCoeffs: {
@@ -1625,12 +1639,12 @@ export interface components {
              */
             costCoeff?: number;
             /**
-             * @description Value of the base beyond which `overcostCoeff` applies instead of `costCoeff`, in the base's own unit. The overcost rate is usually higher, and a value of 0 caps the cost.
+             * @description Value of the base beyond which `overcostCoeff` applies instead of `costCoeff`, in the base's own unit. The overcost rate is usually higher. When you set no `overcostCoeff`, or set it to 0, the cost stops growing past an `overcostFloor` greater than 0.
              * @example 100
              */
             overcostFloor?: number;
             /**
-             * @description Cost per unit of the base exceeding `overcostFloor`, in currency unit per base unit.
+             * @description Cost per unit of the base exceeding `overcostFloor`, in currency unit per base unit. A value other than 0 needs an `overcostFloor` greater than 0.
              * @example 0.5
              */
             overcostCoeff?: number;
@@ -1727,7 +1741,7 @@ export interface components {
          * @enum {string}
          */
         AssignmentStatus: "fixed" | "assigned";
-        /** @description Pins a stop onto a resource's tour. `beginTime` defaults to `arrivalTime` when omitted. If `stopId` is the id of an `AlternativesStop` alternative, `arrivalTime`, `beginTime`, and `departureTime` cannot be set: the engine still chooses and times the alternative itself. */
+        /** @description Pins a stop onto a resource's tour. `beginTime` defaults to `arrivalTime` only when `departureTime` is omitted too. If you set `departureTime`, set `beginTime` as well, or the API refuses the plan with a `400` error. If `stopId` is the id of an `AlternativesStop` alternative, `arrivalTime`, `beginTime`, and `departureTime` cannot be set: the engine still chooses and times the alternative itself. */
         AssignmentStop: {
             /**
              * @description Discriminator identifying this waypoint as a stop. (enum property replaced by openapi-typescript)
@@ -1742,7 +1756,7 @@ export interface components {
             stopId: components["schemas"]["RegexIdValidation"];
             /** @description Time the resource reaches the stop. */
             arrivalTime?: components["schemas"]["DateTime"];
-            /** @description Time the resource starts serving the stop. Defaults to `arrivalTime` when omitted. */
+            /** @description Time the resource starts serving the stop. Defaults to `arrivalTime` only when `departureTime` is omitted too. */
             beginTime?: components["schemas"]["DateTime"];
             /** @description Time the resource leaves the stop. */
             departureTime?: components["schemas"]["DateTime"];
@@ -2096,7 +2110,7 @@ export interface components {
              */
             name?: string;
             /**
-             * @description Ids of the resources whose cumulated cost is included in `exceededCost`.
+             * @description Ids of every resource that carries a tag counted by the constraint, used or not.
              * @example [
              *       "resource1",
              *       "resource2"
