@@ -29,6 +29,10 @@
  * without `force` (`KardinalValidationError`). A 403 that carries one of the
  * clues of a limit is a `KardinalLimitError`. Any other 403 (an unknown
  * message, a rejected scope or claim) is a `KardinalForbiddenError`.
+ *
+ * The message of an auth, validation, limit or forbidden error, and of an
+ * `UnknownFieldError`, ends with a link to the page of the docs that
+ * explains it: `See https://developers.kardinal.ai/sdks/...`.
  */
 
 /** One `Error` object of the response envelope. */
@@ -203,6 +207,16 @@ export function hintFor(field: UnknownFieldLike): string | undefined {
   return field.suggestion ? `did you mean ${field.suggestion}?` : undefined;
 }
 
+// The page of the docs that explains each family, appended to the message so
+// that whoever reads a stack trace, a log line or the CLI output, an AI
+// agent included, finds the next step. Families the docs say nothing more
+// about (a 404, a 5xx) get no link.
+const DOCS = "https://developers.kardinal.ai/sdks";
+const AUTH_DOCS = `${DOCS}/configuration#troubleshooting-authentication`;
+const VALIDATION_DOCS = `${DOCS}/errors-and-warnings#validation-errors`;
+const LIMIT_DOCS = `${DOCS}/errors-and-warnings#quotas-and-rate-limits`;
+const CLIENT_SIDE_DOCS = `${DOCS}/errors-and-warnings#client-side-errors`;
+
 function describe(field: UnknownFieldLike): string {
   const hint = hintFor(field);
   return hint ? `  (${hint})` : "";
@@ -225,7 +239,7 @@ export class UnknownFieldError extends KardinalError {
 
   constructor(fields: ReadonlyArray<UnknownFieldLike>) {
     const listed = fields.map((f) => `  ${f.path}${describe(f)}`).join("\n");
-    super(`Unknown field(s) in the plan:\n${listed}`, {
+    super(`Unknown field(s) in the plan:\n${listed}\nSee ${CLIENT_SIDE_DOCS}`, {
       code: "UNKNOWN_FIELD",
       status: 0,
       requestId: null,
@@ -348,5 +362,12 @@ export function fromResponse(opts: {
   else if (code === "INTERNAL_SERVER_ERROR") Family = KardinalServerError;
   else Family = familyForStatus(status);
 
-  return new Family(message, { code, status, requestId, retryable, errors, warnings });
+  const docs = new Map<ErrorClass, string>([
+    [KardinalAuthError, AUTH_DOCS],
+    [KardinalValidationError, VALIDATION_DOCS],
+    [KardinalLimitError, LIMIT_DOCS],
+    [KardinalForbiddenError, LIMIT_DOCS],
+  ]).get(Family);
+  const text = docs ? `${message} See ${docs}` : message;
+  return new Family(text, { code, status, requestId, retryable, errors, warnings });
 }

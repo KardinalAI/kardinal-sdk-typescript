@@ -8,6 +8,7 @@ import {
   KardinalRateLimitError,
   KardinalServerError,
   KardinalValidationError,
+  UnknownFieldError,
   fromResponse,
 } from "../src/core/errors.js";
 
@@ -66,7 +67,9 @@ describe("fromResponse", () => {
     const err = fromResponse({ status: 403, requestId: null, errors });
     expect(err).toBeInstanceOf(KardinalLimitError);
     expect(err.code).toBe("NOT_ALLOWED");
-    expect(err.message).toBe("The requested action is not allowed.");
+    expect(err.message).toBe(
+      "The requested action is not allowed. See https://developers.kardinal.ai/sdks/errors-and-warnings#quotas-and-rate-limits"
+    );
     expect(err.details).toBe("The resulting plan violates the quotas configuration of the agency");
     expect(err.errors).toEqual(errors);
   });
@@ -283,5 +286,37 @@ describe("fromResponse with empty values", () => {
     const err = fromResponse({ status: 404, requestId: null, errors: [{ code: "", message: "" }] });
     expect(err.code).toBe("NOT_FOUND");
     expect(err.message).toBe("HTTP 404");
+  });
+});
+
+describe("links to the docs in error messages", () => {
+  const DOCS = "https://developers.kardinal.ai/sdks";
+
+  it.each([
+    [401, error("NOT_AUTHENTICATED"), KardinalAuthError, `${DOCS}/configuration#troubleshooting-authentication`],
+    [403, error("NOT_ALLOWED", "the token is invalid"), KardinalAuthError, `${DOCS}/configuration#troubleshooting-authentication`],
+    [400, error("INVALID_VALUE"), KardinalValidationError, `${DOCS}/errors-and-warnings#validation-errors`],
+    [403, error("NOT_ALLOWED", "Insufficient credits"), KardinalLimitError, `${DOCS}/errors-and-warnings#quotas-and-rate-limits`],
+    [403, error("NOT_ALLOWED", "scope rejected"), KardinalForbiddenError, `${DOCS}/errors-and-warnings#quotas-and-rate-limits`],
+  ])("a %i ends with the page that explains it", (status, errors, Family, url) => {
+    const err = fromResponse({ status, requestId: null, errors });
+    expect(err).toBeInstanceOf(Family);
+    expect(err.message).toBe(`${errors[0].message} See ${url}`);
+  });
+
+  it("adds no link where the docs have nothing more to say", () => {
+    expect(fromResponse({ status: 404, requestId: null, errors: error("NOT_FOUND") }).message).toBe("NOT_FOUND message");
+    expect(fromResponse({ status: 500, requestId: null, errors: error("INTERNAL_SERVER_ERROR") }).message).toBe(
+      "INTERNAL_SERVER_ERROR message"
+    );
+  });
+
+  it("an UnknownFieldError ends with the page on client-side errors", () => {
+    const err = new UnknownFieldError([{ path: "plan.resources[0].maxWorkingDurationn", suggestion: "maxWorkingDuration" }]);
+    expect(err.message).toBe(
+      "Unknown field(s) in the plan:\n" +
+        "  plan.resources[0].maxWorkingDurationn  (did you mean maxWorkingDuration?)\n" +
+        `See ${DOCS}/errors-and-warnings#client-side-errors`
+    );
   });
 });

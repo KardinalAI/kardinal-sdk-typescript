@@ -306,6 +306,7 @@ with its path and refuses to send:
 Unknown field(s) in the plan:
   plan.resources[0].maxWorkingDurationn       (did you mean maxWorkingDuration?)
   plan.orders[0].stops[0].operationDurationn  (did you mean operationDuration?)
+See https://developers.kardinal.ai/sdks/errors-and-warnings#client-side-errors
 ```
 
 `update()` sorts them by where they came from. One the server sent is a
@@ -348,6 +349,11 @@ Every error carries `.code`, `.status`, `.requestId`, `.retryable`,
 `.warnings`, `.errors` and `.details`. `.errors` is every error object of
 the response; `.details` is the `properties.details` of the error `.code`
 came from, the only way to tell apart errors that share a code.
+
+The message of a `KardinalAuthError`, a `KardinalValidationError`, a
+`KardinalLimitError`, a `KardinalForbiddenError` and an `UnknownFieldError`
+ends with a link to the page of the docs that explains it. The rest of the
+message is the API's own text.
 
 The API answers every refusal with a 403 `NOT_ALLOWED`, so the SDK sorts a
 403 by what the response carries. `KardinalLimitError` is what a 403 becomes
