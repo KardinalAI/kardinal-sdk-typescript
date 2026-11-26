@@ -453,7 +453,9 @@ export interface components {
              *
              *     With `false`, the engine treats a pickup with a negative quantity as a delivery only. The goods are loaded at departure, and the stop takes them off the vehicle. With `true`, the stop stays a normal pickup that removes load. The pickup of another order can then fill the vehicle before it.
              *
-             *     > **When to use.** Only for a model that writes a dump-site stop as a `pickup` with a negative quantity, such as a waste collection truck. Otherwise keep `false`, the recommended setting.
+             *     For example, a truck has a `weight` ceiling of 100 kg. It collects a bin of 80 kg with a `pickup` that has `capacities: {"weight": 80}`. The bin is open from 08:00 to 09:00. The dump site is a `pickup` of another order, with `capacities: {"weight": -80}`. The dump site is open from 12:00 to 13:00, so the truck visits the bin first. With `true`, the load is 80 kg after the bin and 0 kg after the dump site. With `false`, the engine would load the 80 kg of the dump site at departure. The load would then reach 160 kg after the bin, over the ceiling. The engine therefore leaves the dump-site stop in `unaffectedStopIds`. The solution shows no violation.
+             *
+             *     > **When to use.** Set `true` for waste collection, when you write the emptying at the dump site as a `pickup` with a negative quantity. It is the recommended setting for that model. For any other model, keep `false`.
              *
              *     > **Default.** `false`: a pickup with a negative quantity is loaded at departure, then removed at the stop.
              * @default false
@@ -738,8 +740,8 @@ export interface components {
              *
              *     > **Modelling pitfall.** Spanning more than one calendar day does not, on its own, force any rest between working days. Encode daily rest explicitly in `breaks[]`, for example one `timeWindowBreak` per night, with a window longer than the rest. See [Multi-day trips](https://developers.kardinal.ai/guides/multi-day).
              * @example {
-             *       "begin": "2026-03-17T08:00:00+01:00",
-             *       "end": "2026-03-17T18:00:00+01:00"
+             *       "begin": "2026-03-17 08:00",
+             *       "end": "2026-03-17 18:00"
              *     }
              */
             workingTimeWindow: components["schemas"]["TimeWindow"];
@@ -856,8 +858,8 @@ export interface components {
              *     > **Modelling pitfall.** The stop can finish up to `operationDuration` after `end`. To express "must be done and gone by 15:00", subtract `operationDuration` from `end` yourself: for a 15-minute operation, set `end` to `"2026-08-03 14:45"`.
              * @example [
              *       {
-             *         "begin": "2026-03-17T08:00:00+01:00",
-             *         "end": "2026-03-17T12:00:00+01:00"
+             *         "begin": "2026-03-17 08:00",
+             *         "end": "2026-03-17 12:00"
              *       }
              *     ]
              */
@@ -872,8 +874,8 @@ export interface components {
              *     > **Modelling pitfall.** A preferred window doesn't make the stop reachable at any time. To express "deliver at 21:00 if possible, otherwise earlier", don't use a preferred window: it forbids starting before 21:00. Use an `AlternativesStop` with a 21:00 candidate and an earlier candidate whose preferred window ends one minute before its authorized window opens. See [Hard or preferred window](https://developers.kardinal.ai/guides/time-windows#hard-or-preferred-window).
              * @example [
              *       {
-             *         "begin": "2026-03-17T09:00:00+01:00",
-             *         "end": "2026-03-17T11:00:00+01:00"
+             *         "begin": "2026-03-17 09:00",
+             *         "end": "2026-03-17 11:00"
              *       }
              *     ]
              */
@@ -883,6 +885,8 @@ export interface components {
          * @description A stop composed of different alternative single stops.
          *
          *     All alternatives of a group must have the same `kind`. A candidate without `kind` counts as a `delivery`. A group that mixes kinds is refused with a `400`.
+         *
+         *     Each candidate counts as one unique stop for billing, so a group of three candidates costs three credits. See [Pricing and credits](https://developers.kardinal.ai/reference/pricing-and-credits#how-credits-work).
          */
         AlternativesStop: {
             /**
@@ -1266,8 +1270,8 @@ export interface components {
             duration: components["schemas"]["Duration"];
             /**
              * @example {
-             *       "begin": "2026-03-17T12:00:00+01:00",
-             *       "end": "2026-03-17T13:00:00+01:00"
+             *       "begin": "2026-03-17 12:00",
+             *       "end": "2026-03-17 13:00"
              *     }
              */
             timeWindow: components["schemas"]["TimeWindow"];
