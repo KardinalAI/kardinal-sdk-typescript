@@ -1,6 +1,6 @@
 // Copied from guides/orders-and-sequences.mdx by scripts/sync-doc-examples.mjs: do not edit by hand.
 
-// --- guides/orders-and-sequences.mdx:393
+// --- guides/orders-and-sequences.mdx:394
 import type { PlanCreateInput } from "@kardinal-ai/sdk";
 
 const depot = { lon: 2.35, lat: 48.85 };
@@ -57,7 +57,7 @@ const plan: PlanCreateInput = {
 };
 
 
-// --- guides/orders-and-sequences.mdx:521
+// --- guides/orders-and-sequences.mdx:522
 import type { PlanCreateInput, WaitedSolution } from "@kardinal-ai/sdk";
 
 export function checkOrders(plan: PlanCreateInput, solution: WaitedSolution): string[] {

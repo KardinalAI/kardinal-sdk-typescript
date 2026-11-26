@@ -1,6 +1,6 @@
 // Copied from guides/time-windows.mdx by scripts/sync-doc-examples.mjs: do not edit by hand.
 
-// --- guides/time-windows.mdx:179
+// --- guides/time-windows.mdx:224
 import type { PlanCreateInput } from "@kardinal-ai/sdk";
 
 const depot = { lon: 2.35, lat: 48.85 };
@@ -54,7 +54,7 @@ const plan: PlanCreateInput = {
 };
 
 
-// --- guides/time-windows.mdx:310
+// --- guides/time-windows.mdx:355
 import type { PlanCreateInput, WaitedSolution } from "@kardinal-ai/sdk";
 
 // Reads "2026-10-29 10:00" in the plan's tz, or "2026-10-29T10:00:00+01:00" as is.

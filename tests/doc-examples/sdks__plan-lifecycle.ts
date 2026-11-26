@@ -7,7 +7,7 @@ const k = new Kardinal();
 const plan = await k.routing.plans.submit(examples.smallDeliveryPlan());
 console.log(plan.id, plan.version);
 for (const warning of plan.warnings) {
-  console.log(warning.code, warning.properties);
+  console.log(warning.code, warning.properties?.path);
 }
 
 

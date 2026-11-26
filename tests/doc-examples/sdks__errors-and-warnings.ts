@@ -16,14 +16,20 @@ try {
 }
 
 
-// --- sdks/errors-and-warnings.mdx:151
+// --- sdks/errors-and-warnings.mdx:159
+const storedValue = (plan: object, path: string) =>
+  path.split(".").reduce<any>((value, key) => value?.[key], plan);
+
 plan = await k.routing.plans.submit(planInput);
 for (const warning of plan.warnings) {
-  console.log(warning.code, warning.properties); // for example, maxOptimizationDuration clamped
+  const path = warning.properties?.path;
+  if (path) {
+    console.log(warning.code, path, storedValue(plan, path)); // for example, INVALID_VALUE maxOptimizationDuration PT6H
+  }
 }
 
 
-// --- sdks/errors-and-warnings.mdx:188
+// --- sdks/errors-and-warnings.mdx:202
 const typosOnly = new Kardinal({
   onWarning: (message, fields) => {
     if (fields.length > 0) console.warn(message);
